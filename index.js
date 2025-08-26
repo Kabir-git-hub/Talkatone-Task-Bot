@@ -292,20 +292,22 @@ async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
 }
 
 
-// ------ ৭. গুগল শীট নিয়ে কাজ করার হেল্পার ফাংশন ------
+// ------ ৭. গুগল শীট নিয়ে কাজ করার হেল্পার ফাংশন (আপডেটেড) ------
 
 async function findUser(userId) {
     const { statsSheet } = await getSheets();
     const rows = await statsSheet.getRows();
-    const userRow = rows.find(row => String(row.UserID) === String(userId));
+    // মূল পরিবর্তন এখানে: row.UserID এর পরিবর্তে row.get('UserID') ব্যবহার করা হয়েছে
+    const userRow = rows.find(row => String(row.get('UserID')) === String(userId));
+    
     if (userRow) {
         return {
             row: userRow.rowIndex,
-            id: userRow.UserID,
-            name: userRow.UserName,
-            total: parseInt(userRow.TotalCompleted) || 0,
-            daily: parseInt(userRow.DailyCompleted) || 0,
-            date: userRow.LastCompletedDate
+            id: userRow.get('UserID'),
+            name: userRow.get('UserName'),
+            total: parseInt(userRow.get('TotalCompleted')) || 0,
+            daily: parseInt(userRow.get('DailyCompleted')) || 0,
+            date: userRow.get('LastCompletedDate')
         };
     }
     return null;
@@ -438,3 +440,17 @@ async function syncHabibaToWorkSheet() {
         console.error(`Error in syncHabibaToWorkSheet: ${err}`);
     }
 }
+
+// ------ নতুন: অটো-সিঙ্ক করার জন্য গোপন এন্ডপয়েন্ট ------
+const SYNC_SECRET = process.env.SYNC_SECRET || 'your-very-secret-key'; // এই কী টি আমরা পরে UptimeRobot-এ ব্যবহার করব
+
+app.get(`/sync/${SYNC_SECRET}`, async (req, res) => {
+    try {
+        console.log('Sync job started by cron...');
+        await syncHabibaToWorkSheet();
+        res.status(200).send('Sync completed successfully.');
+    } catch (error) {
+        console.error('Sync job failed:', error);
+        res.status(500).send('Sync failed.');
+    }
+});
