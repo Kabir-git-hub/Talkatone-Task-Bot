@@ -7,6 +7,7 @@ require('dotenv').config();
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
+const { JWT } = require('google-auth-library');
 
 // ------ ২. আপনার তথ্য এবং কনফিগারেশন ------
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -28,26 +29,34 @@ app.use(express.json()); // টেলিগ্রাম থেকে আসা J
 const webhookUrl = `${SERVER_URL}/bot${TOKEN}`;
 bot.setWebHook(webhookUrl);
 
-// ------ ৩. গুগল শীট কানেকশন ------
+// ------ ৩. গুগল শীট কানেকশন (সঠিক V4 সিনট্যাক্স) ------
+
+// সার্ভিস অ্যাকাউন্ট অথেন্টিকেশন ক্লায়েন্ট তৈরি করা
+const serviceAccountAuth = new JWT({
+    email: creds.client_email,
+    key: creds.private_key.replace(/\\n/g, '\n'), // Render-এর জন্য কী (key) ফরম্যাট ঠিক করা
+    scopes: [
+        'https://www.googleapis.com/auth/spreadsheets',
+    ],
+});
+
 // গুগল শীট ডকুমেন্টগুলো লোড করার ফাংশন
 async function getSheets() {
-    const workDoc = new GoogleSpreadsheet(WORK_SHEET_ID);
-    await workDoc.useServiceAccountAuth(creds);
+    const workDoc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
     await workDoc.loadInfo();
     const workSheet = workDoc.sheetsByIndex[0];
 
-    const statsDoc = new GoogleSpreadsheet(STATS_SHEET_ID);
-    await statsDoc.useServiceAccountAuth(creds);
+    const statsDoc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
     await statsDoc.loadInfo();
     const statsSheet = statsDoc.sheetsByIndex[0];
 
-    const finalDoc = new GoogleSpreadsheet(FINAL_SHEET_ID);
-    await finalDoc.useServiceAccountAuth(creds);
+    const finalDoc = new GoogleSpreadsheet(FINAL_SHEET_ID, serviceAccountAuth);
     await finalDoc.loadInfo();
     const finalSheet = finalDoc.sheetsByIndex[0];
     
     return { workSheet, statsSheet, finalSheet };
 }
+
 
 // ইউজার স্টেট (state) সংরক্ষণ করার জন্য (PropertiesService-এর বিকল্প)
 const userStates = {}; 
