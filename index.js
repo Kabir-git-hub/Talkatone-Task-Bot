@@ -191,11 +191,11 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const { workSheet } = await getSheets();
     await workSheet.loadHeaderRow();
     const rows = await workSheet.getRows();
-    const task = rows[parseInt(row) - 2];
+    
+    // সারি খুঁজে বের করার জন্য সবচেয়ে নির্ভরযোগ্য পদ্ধতি
+    const task = rows.find(r => r.rowNumber == row);
 
     if (task && task.get('AssignedTo') === user.name && task.get('Status') === "Assigned") {
-        const today = new Date().toLocaleDateString('en-CA'); // "YYYY-MM-DD" ফরম্যাট
-        
         task.set('PhoneNumber', trimmedPhoneNumber);
         task.set('Status', "Completed");
         await task.save();
@@ -204,9 +204,9 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         delete userStates[user.id];
         
         const taskDetails = `<b>কাজটি সম্পন্ন হয়েছে (সারি ${row}):</b>\n\n`+
-                            `<b>Email:</b> <code>${task.get('Email')}</code>\n` +
-                            `<b>Password:</b> <code>${task.get('Password')}</code>\n` +
-                            `<b>Recovery Mail:</b> <code>${task.get('Recovery Mail')}</code>\n\n` +
+                            `<b>Email:</b> <code>${task.get('Email')}</code>\n`+
+                            `<b>Password:</b> <code>${task.get('Password')}</code>\n`+
+                            `<b>Recovery Mail:</b> <code>${task.get('Recovery Mail')}</code>\n\n`+
                             `<b>জমাকৃত ফোন নম্বর:</b> <code>${trimmedPhoneNumber}</code>`;
 
         if (messageId) {
@@ -217,20 +217,27 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         delete userStates[user.id];
         bot.sendMessage(chatId, "দুঃখিত, এই কাজটি জমা দেওয়ার সময় একটি সমস্যা হয়েছে।", { reply_markup: getMainMenuKeyboard() });
     }
-}
+}}
 
 async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
-    // ...
+    const { workSheet } = await getSheets();
+    await workSheet.loadHeaderRow();
+    const rows = await workSheet.getRows();
+
+    // সারি খুঁজে বের করার জন্য সবচেয়ে নির্ভরযোগ্য পদ্ধতি
+    const task = rows.find(r => r.rowNumber == rowToReject);
 
     if (task && task.get('Status') === "Assigned" && task.get('AssignedTo') === user.name) {
         let responseText = "";
-        const today = new Date().toLocaleDateString('en-CA'); // "YYYY-MM-DD" ফরম্যাট
-
         if (reason === "problem") {
             task.set('Status', "Rejected");
-           
             await task.save();
             responseText = `কাজটি (সারি ${rowToReject}) সফলভাবে বাতিল করা হয়েছে।`;
+        } else if (reason === "later") {
+            task.set('Status', "Available");
+            task.set('AssignedTo', "");
+            await task.save();
+            responseText = `কাজটি আবার তালিকার শুরুতে যুক্ত করা হয়েছে।`;
         }
         
         if (messageId) {
