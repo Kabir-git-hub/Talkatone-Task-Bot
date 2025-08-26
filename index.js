@@ -103,26 +103,35 @@ async function handleCommand(msg, command, fromId, messageId) {
     }
 }
 
-// ------ ৬. বটের মূল ফাংশনগুলো ------
+// ------ ৬. বটের মূল ফাংশনগুলো (আপডেটেড) ------
 
 async function handleGetTask(chatId, user) {
     const { workSheet } = await getSheets();
-    await workSheet.loadHeaderRow();
+    
+    // ডেটা পড়ার আগে নিশ্চিত করা যে হেডারগুলো লোড হয়েছে
+    await workSheet.loadHeaderRow(); 
     const rows = await workSheet.getRows();
 
+    // ব্যবহারকারীর কাছে কোনো অসমাপ্ত কাজ আছে কিনা চেক করা
+    // মূল পরিবর্তন: row.get('HeaderName') ব্যবহার করা হচ্ছে
     const existingTask = rows.find(row => row.get('AssignedTo') === user.name && row.get('Status') === 'Assigned');
     if (existingTask) {
         bot.sendMessage(chatId, "আপনার কাছে ইতিমধ্যে একটি কাজ অসমাপ্ত রয়েছে।");
         return;
     }
 
+    // নতুন কাজ খুঁজে বের করা
+    // মূল পরিবর্তন: row.get('HeaderName') ব্যবহার করা হচ্ছে
     const availableTask = rows.find(row => row.get('Status') === 'Available');
     if (availableTask) {
+        // ডেটা আপডেট করার জন্য .set('HeaderName', value) ব্যবহার করা হচ্ছে
         availableTask.set('Status', 'Assigned');
         availableTask.set('AssignedTo', user.name);
-        await availableTask.save();
+        await availableTask.save(); // পরিবর্তন সেভ করা
 
-        const taskRow = availableTask.rowNumber;
+        // .rowNumber এর পরিবর্তে rowIndex ব্যবহার করা নিরাপদ, তবে rowNumber কাজ করার কথা
+        const taskRow = availableTask.rowNumber; 
+        
         const message = `<b>আপনার নতুন কাজ</b>\n\n` +
                         `<b>Email: </b> <code>${availableTask.get('Email')}</code>\n` +
                         `<b>Password: </b> <code>${availableTask.get('Password')}</code>\n` +
@@ -132,9 +141,15 @@ async function handleGetTask(chatId, user) {
         const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
         bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
     } else {
+        // যদি availableTask খুঁজে না পাওয়া যায়, তাহলে লগ করে দেখা যাক কেন পাওয়া যাচ্ছে না
+        console.log(`No available tasks found. Total rows checked: ${rows.length}`);
+        rows.forEach((row, index) => {
+            console.log(`Row ${index + 2}: Status is '${row.get('Status')}'`);
+        });
         bot.sendMessage(chatId, "দুঃখিত, এই মুহূর্তে কোনো নতুন কাজ নেই।");
     }
 }
+
 
 async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const trimmedPhoneNumber = phoneNumber.trim();
