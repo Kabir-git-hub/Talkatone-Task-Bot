@@ -31,7 +31,7 @@ const serviceAccountAuth = new JWT({
     key: creds.private_key.replace(/\\n/g, '\n'),
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
-
+const userStates = {};
 // ------ ৩. গুগল শীট কানেকশন ফাংশন (চূড়ান্ত ভার্সন) ------
 async function getSheets() {
     // Work Sheet এবং এর ভেতরের ট্যাবগুলো অ্যাক্সেস করা
