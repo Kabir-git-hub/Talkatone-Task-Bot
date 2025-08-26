@@ -269,18 +269,17 @@ async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
     const taskRow = parseInt(rowToReject);
     const { workSheet } = await getSheets();
     const rows = await workSheet.getRows();
-    const task = rows[taskRow - 2]; // 0-indexed and header row
+    const task = rows[taskRow - 2];
 
-    if (task && task.Status === "Assigned" && task.AssignedTo === user.name) {
+    if (task && task.get('Status') === "Assigned" && task.get('AssignedTo') === user.name) {
         let responseText = "";
         if (reason === "problem") {
-            task.Status = "Rejected";
+            task.set('Status', "Rejected"); // শুধু স্ট্যাটাস পরিবর্তন করা হচ্ছে
             await task.save();
-            // রঙ করার পার্টটি google-spreadsheet দিয়ে সরাসরি করা জটিল, এটি আপাতত বাদ দেওয়া হলো
             responseText = `কাজটি (Row ${taskRow}) সফলভাবে বাতিল করা হয়েছে।`;
         } else if (reason === "later") {
-            task.Status = "Available"; // স্ট্যাটাস পরিবর্তন করে Available করা
-            task.AssignedTo = ""; // নাম মুছে ফেলা
+            task.set('Status', "Available");
+            task.set('AssignedTo', "");
             await task.save();
             responseText = `কাজটি আবার তালিকার শুরুতে যুক্ত করা হয়েছে।`;
         }
@@ -394,52 +393,7 @@ app.listen(PORT, () => {
     console.log(`Webhook is set to: ${webhookUrl}`);
 });
 
-// Sync function - (স্বয়ংক্রিয়ভাবে সিঙ্ক করার ফাংশন)
-// Render-এ এটি Cron Job হিসেবে সেট করতে হবে
-async function syncHabibaToWorkSheet() {
-    try {
-        const { finalSheet, workSheet } = await getSheets();
-        
-        const sourceRows = await finalSheet.getRows();
-        const destRows = await workSheet.getRows();
 
-        const sourceEmails = {};
-        sourceRows.forEach(row => {
-            if (row.Email && !row.PhoneNumber) {
-                sourceEmails[row.Email] = { Email: row.Email, Password: row.Password, Recovery: row.Recovery };
-            }
-        });
-
-        const destEmails = new Set(destRows.map(row => row.Email));
-        
-        const newTasksToAdd = [];
-        for (const email in sourceEmails) {
-            if (!destEmails.has(email)) {
-                const task = sourceEmails[email];
-                newTasksToAdd.push({
-                    Email: task.Email,
-                    Password: task.Password,
-                    Recovery: task.Recovery,
-                    Phone: "",
-                    Status: "Available",
-                    AssignedTo: ""
-                });
-            }
-        }
-
-        if (newTasksToAdd.length > 0) {
-            await workSheet.addRows(newTasksToAdd);
-            console.log(`${newTasksToAdd.length} new tasks added.`);
-        }
-
-        // ডিলিট করার প্রক্রিয়াটি জটিল এবং ঝুঁকিপূর্ণ হতে পারে, তাই সাবধানে করতে হবে
-        // আপাতত এটি নিষ্ক্রিয় রাখা হলো যাতে কোনো ডেটা ভুলবশত মুছে না যায়
-        console.log('Sync completed.');
-
-    } catch (err) {
-        console.error(`Error in syncHabibaToWorkSheet: ${err}`);
-    }
-}
 
 // ------ নতুন: অটো-সিঙ্ক করার জন্য গোপন এন্ডপয়েন্ট ------
 const SYNC_SECRET = process.env.SYNC_SECRET || 'your-very-secret-key'; // এই কী টি আমরা পরে UptimeRobot-এ ব্যবহার করব
