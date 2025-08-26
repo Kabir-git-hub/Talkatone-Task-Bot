@@ -153,27 +153,33 @@ async function handleGetTask(chatId, user) {
 
 async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const trimmedPhoneNumber = phoneNumber.trim();
-    // const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ইচ্ছা হলে এই ভ্যালিডেশন রাখতে পারেন
-
-    // if (!phoneRegex.test(trimmedPhoneNumber)) {
-    //     bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে `(123) 456-7890` এই ফরম্যাটে আবার পাঠান।");
-    //     return;
-    // }
+    // const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ইচ্ছা হলে ভ্যালিডেশন রাখতে পারেন
 
     const { row, messageId } = stateData;
     const { workSheet } = await getSheets();
+    await workSheet.loadHeaderRow(); // হেডার লোড করা
     const rows = await workSheet.getRows();
-    const task = rows.find(r => r.rowNumber == row);
+    
+    // সারি নম্বর দিয়ে সঠিক সারিটি খুঁজে বের করা
+    // .rowNumber ব্যবহার না করে rowIndex ব্যবহার করা নিরাপদ
+    const task = rows[parseInt(row) - 2]; // rowIndex হলো 0-based, তাই (সারি নম্বর - ২)
 
     if (task && task.get('AssignedTo') === user.name && task.get('Status') === "Assigned") {
-        task.set('Phone', trimmedPhoneNumber);
+        // মূল পরিবর্তন: .set() ব্যবহার করে ডেটা আপডেট করা
+        task.set('PhoneNumber', trimmedPhoneNumber); // আপনার শীটের হেডার যদি PhoneNumber হয়
         task.set('Status', "Completed");
-        await task.save();
+        await task.save(); // পরিবর্তন সেভ করা
         
         await updateUserStats(user, 1);
-        delete userStates[user.id]; // user.id এর পরিবর্তে userId ব্যবহার করা ভালো, তবে এটিও কাজ করবে
+        delete userStates[user.id];
         
-        const taskDetails = `<b>কাজটি সম্পন্ন হয়েছে:</b>\n\n<b>জমাকৃত ফোন নম্বর:</b> <code>${trimmedPhoneNumber}</code>`;
+        // ---- সমস্যা ২ এর সমাধান নিচে যোগ করা হয়েছে ----
+        const taskDetails = `<b>কাজটি সম্পন্ন হয়েছে (সারি ${row}):</b>\n\n`+
+                            `<b>Email:</b> <code>${task.get('Email')}</code>\n` +
+                            `<b>Password:</b> <code>${task.get('Password')}</code>\n` +
+                            `<b>Recovery Mail:</b> <code>${task.get('Recovery Mail')}</code>\n\n` +
+                            `<b>জমাকৃত ফোন নম্বর:</b> <code>${trimmedPhoneNumber}</code>`;
+
         if (messageId) {
             bot.editMessageText(taskDetails, { chat_id: chatId, message_id: messageId, parse_mode: 'HTML', reply_markup: {} });
         }
