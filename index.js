@@ -88,7 +88,40 @@ async function handleCommand(msg, command, fromId, messageId) {
             await handleGetTask(chatId, user);
         } else if (command === '/my_stats') {
             await updateAndShowStats(chatId, user);
-        } else if (command.startsWith('submit_phone_')) {
+        } else if (command.startsWith('submit_phone_')) 
+            } else if (command.startsWith('reject_')) {
+            const taskRow = command.split('_')[1];
+            const rejectOptionsKeyboard = { 
+                inline_keyboard: [ 
+                    [{ text: "🚫 Account Create Problem", callback_data: `confirm_reject_problem_${taskRow}` }], 
+                    [{ text: "⏰ পরে করব (Do Later)", callback_data: `confirm_reject_later_${taskRow}` }],
+                    [{ text: "↩️  ফিরে যান (Back) ", callback_data: `back_to_task_${taskRow}`}] 
+                ] 
+            };
+            bot.editMessageText("আপনি কেন কাজটি বাতিল করতে চান?", { chat_id: chatId, message_id: messageId, reply_markup: rejectOptionsKeyboard });
+        
+        } else if (command.startsWith("confirm_reject_")) {
+            const parts = command.split("_");
+            const reason = parts[2];
+            const taskRow = parts[3];
+            const confirmationKeyboard = { 
+                inline_keyboard: [ 
+                    [{ text: "✅ হ্যাঁ (Yes)", callback_data: `final_reject_${reason}_${taskRow}` }], 
+                    [{ text: "❌ না (No)", callback_data: `back_to_task_${taskRow}` }] 
+                ] 
+            };
+            bot.editMessageText("আপনি কি নিশ্চিত?", { chat_id: chatId, message_id: messageId, reply_markup: confirmationKeyboard });
+
+        } else if (command.startsWith("final_reject_")) {
+            const parts = command.split("_");
+            const reason = parts[2];
+            const taskRow = parts[3];
+            await handleRejectTask(chatId, user, taskRow, reason, messageId);
+
+        } else if (command.startsWith("back_to_task_")) {
+            const taskRow = command.split("_")[3];
+            await handleBackToTask(chatId, taskRow, messageId);
+        }
             const taskRow = command.split('_')[2];
             userStates[userId] = { state: 'awaiting_phone', row: taskRow, messageId: messageId };
             bot.sendMessage(chatId, "অনুগ্রহ করে ফোন নম্বরটি পাঠান।");
@@ -190,22 +223,53 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     }
 }
 
-async function handleRejectTask(chatId, user, rowToReject, messageId) {
+async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
     const { workSheet } = await getSheets();
+    await workSheet.loadHeaderRow();
     const rows = await workSheet.getRows();
-    const task = rows.find(r => r.rowNumber == rowToReject);
+    const task = rows[parseInt(rowToReject) - 2];
 
     if (task && task.get('Status') === "Assigned" && task.get('AssignedTo') === user.name) {
-        task.set('Status', "Rejected");
-        await task.save();
+        let responseText = "";
+        if (reason === "problem") {
+            task.set('Status', "Rejected"); // GAS এই স্ট্যাটাস দেখে রঙ করবে
+            await task.save();
+            responseText = `কাজটি (সারি ${rowToReject}) সফলভাবে বাতিল করা হয়েছে।`;
+        } else if (reason === "later") {
+            task.set('Status', "Available"); // কাজটি আবার তালিকার জন্য উন্মুক্ত করা হলো
+            task.set('AssignedTo', ""); // অ্যাসাইন করা নাম মুছে ফেলা হলো
+            await task.save();
+            responseText = `কাজটি আবার তালিকার শুরুতে যুক্ত করা হয়েছে।`;
+        }
         
-        const responseText = `কাজটি সফলভাবে বাতিল করা হয়েছে।`;
         if (messageId) {
             bot.editMessageText(responseText, { chat_id: chatId, message_id: messageId, reply_markup: {} });
         }
         bot.sendMessage(chatId, "আপনার পরবর্তী কাজের জন্য প্রস্তুত।", { reply_markup: getMainMenuKeyboard() });
     } else {
         if (messageId) bot.editMessageText("এই কাজটি বাতিল করা সম্ভব নয়।", { chat_id: chatId, message_id: messageId });
+    }
+}
+
+async function handleBackToTask(chatId, taskRow, messageId) {
+    const { workSheet } = await getSheets();
+    await workSheet.loadHeaderRow();
+    const rows = await workSheet.getRows();
+    const task = rows[parseInt(taskRow) - 2];
+
+    if (task) {
+        const message = `<b>আপনার নতুন কাজ</b>\n\n` +
+                        `<b>Email: </b> <code>${task.get('Email')}</code>\n` +
+                        `<b>Password: </b> <code>${task.get('Password')}</code>\n` +
+                        `<b>Recovery Mail:</b> <code>${task.get('Recovery Mail')}</code>\n\n` +
+                        `কাজটি শেষ হলে ফোন নম্বরটি এখানে পাঠান।`;
+        const originalKeyboard = { 
+            inline_keyboard: [ 
+                [{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], 
+                [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }] 
+            ] 
+        };
+        bot.editMessageText(message, { chat_id: chatId, message_id: messageId, parse_mode: 'HTML', reply_markup: originalKeyboard });
     }
 }
 
