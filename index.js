@@ -59,7 +59,7 @@ bot.on('callback_query', (callbackQuery) => {
     handleCommand(callbackQuery.message, callbackQuery.data, callbackQuery.from.id, callbackQuery.message.message_id);
 });
 
-// ------ ৫. মূল কমান্ড হ্যান্ডেলার ------
+// ------ ৫. মূল কমান্ড হ্যান্ডেলার (সংশোধিত এবং নির্ভুল) ------
 async function handleCommand(msg, command, fromId, messageId) {
     const chatId = msg.chat.id;
     const userId = fromId || msg.from.id;
@@ -67,6 +67,7 @@ async function handleCommand(msg, command, fromId, messageId) {
     try {
         const user = await findUser(userId);
 
+        // রেজিস্ট্রেশন প্রক্রিয়া
         if (!user) {
             if (command && command.trim().length > 2 && !command.startsWith('/')) {
                 await registerUser(userId, command.trim());
@@ -74,68 +75,51 @@ async function handleCommand(msg, command, fromId, messageId) {
             } else {
                 bot.sendMessage(chatId, "স্বাগতম! বটটি ব্যবহার করার জন্য, দয়া করে আপনার নাম লিখে পাঠান।");
             }
-            return;
+            return; // রেজিস্ট্রেশন হয়ে গেলে বা করতে বললে ফাংশন শেষ
         }
 
+        // স্টেটফুল ফোন নম্বর ইনপুট
         if (userStates[userId] && userStates[userId].state === 'awaiting_phone') {
             await handlePhoneNumberInput(chatId, user, command, userStates[userId]);
-            return;
+            return; // ফোন নম্বর জমা দেওয়ার পর ফাংশন শেষ
         }
         
+        // বাটন এবং কমান্ড অনুযায়ী কাজ করা
         if (command === '/start') {
             bot.sendMessage(chatId, `স্বাগতম, ${user.name}! কী করতে চান?`, { reply_markup: getMainMenuKeyboard() });
         } else if (command === '/get_task') {
             await handleGetTask(chatId, user);
         } else if (command === '/my_stats') {
             await updateAndShowStats(chatId, user);
-        } else if (command.startsWith('submit_phone_')) 
-            } else if (command.startsWith('reject_')) {
-            const taskRow = command.split('_')[1];
-            const rejectOptionsKeyboard = { 
-                inline_keyboard: [ 
-                    [{ text: "🚫 Account Create Problem", callback_data: `confirm_reject_problem_${taskRow}` }], 
-                    [{ text: "⏰ পরে করব (Do Later)", callback_data: `confirm_reject_later_${taskRow}` }],
-                    [{ text: "↩️  ফিরে যান (Back) ", callback_data: `back_to_task_${taskRow}`}] 
-                ] 
-            };
-            bot.editMessageText("আপনি কেন কাজটি বাতিল করতে চান?", { chat_id: chatId, message_id: messageId, reply_markup: rejectOptionsKeyboard });
-        
-        } else if (command.startsWith("confirm_reject_")) {
-            const parts = command.split("_");
-            const reason = parts[2];
-            const taskRow = parts[3];
-            const confirmationKeyboard = { 
-                inline_keyboard: [ 
-                    [{ text: "✅ হ্যাঁ (Yes)", callback_data: `final_reject_${reason}_${taskRow}` }], 
-                    [{ text: "❌ না (No)", callback_data: `back_to_task_${taskRow}` }] 
-                ] 
-            };
-            bot.editMessageText("আপনি কি নিশ্চিত?", { chat_id: chatId, message_id: messageId, reply_markup: confirmationKeyboard });
-
-        } else if (command.startsWith("final_reject_")) {
-            const parts = command.split("_");
-            const reason = parts[2];
-            const taskRow = parts[3];
-            await handleRejectTask(chatId, user, taskRow, reason, messageId);
-
-        } else if (command.startsWith("back_to_task_")) {
-            const taskRow = command.split("_")[3];
-            await handleBackToTask(chatId, taskRow, messageId);
-        }
+        } else if (command.startsWith('submit_phone_')) {
             const taskRow = command.split('_')[2];
             userStates[userId] = { state: 'awaiting_phone', row: taskRow, messageId: messageId };
             bot.sendMessage(chatId, "অনুগ্রহ করে ফোন নম্বরটি পাঠান।");
         } else if (command.startsWith('reject_')) {
             const taskRow = command.split('_')[1];
-            await handleRejectTask(chatId, user, taskRow, messageId);
+            const rejectOptionsKeyboard = { inline_keyboard: [ [{ text: "🚫 Account Create Problem", callback_data: `confirm_reject_problem_${taskRow}` }], [{ text: "⏰ পরে করব (Do Later)", callback_data: `confirm_reject_later_${taskRow}` }], [{ text: "↩️  ফিরে যান (Back) ", callback_data: `back_to_task_${taskRow}`}] ] };
+            bot.editMessageText("আপনি কেন কাজটি বাতিল করতে চান?", { chat_id: chatId, message_id: messageId, reply_markup: rejectOptionsKeyboard });
+        } else if (command.startsWith("confirm_reject_")) {
+            const parts = command.split("_");
+            const reason = parts[2];
+            const taskRow = parts[3];
+            const confirmationKeyboard = { inline_keyboard: [ [{ text: "✅ হ্যাঁ (Yes)", callback_data: `final_reject_${reason}_${taskRow}` }], [{ text: "❌ না (No)", callback_data: `back_to_task_${taskRow}` }] ] };
+            bot.editMessageText("আপনি কি নিশ্চিত?", { chat_id: chatId, message_id: messageId, reply_markup: confirmationKeyboard });
+        } else if (command.startsWith("final_reject_")) {
+            const parts = command.split("_");
+            const reason = parts[2];
+            const taskRow = parts[3];
+            await handleRejectTask(chatId, user, taskRow, reason, messageId);
+        } else if (command.startsWith("back_to_task_")) {
+            const taskRow = command.split("_")[3];
+            await handleBackToTask(chatId, taskRow, messageId);
         }
 
     } catch (error) {
         console.error(`Error in handleCommand: ${error.toString()} \nStack: ${error.stack}`);
-        bot.sendMessage(chatId, "একটি সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
+        bot.sendMessage(chatId, "একটি মারাত্মক সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
     }
 }
-
 // ------ ৬. বটের মূল ফাংশনগুলো (আপডেটেড) ------
 
 async function handleGetTask(chatId, user) {
