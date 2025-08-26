@@ -180,15 +180,12 @@ async function handleGetTask(chatId, user) {
 
 async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const trimmedPhoneNumber = phoneNumber.trim();
-    
-    // --- মূল পরিবর্তন: ফোন নম্বর ফরম্যাট যাচাইকরণ আবার চালু করা হলো ---
-    const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ফরম্যাট: (123) 456-7890
+    const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/;
 
     if (!phoneRegex.test(trimmedPhoneNumber)) {
-        bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে সঠিক ফরম্যাটে আবার পাঠান।");
-        return; // যদি ফরম্যাট না মেলে, তাহলে ফাংশনটি এখানেই শেষ হয়ে যাবে
+        bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে `(123) 456-7890` এই ফরম্যাটে আবার পাঠান।");
+        return;
     }
-    // --------------------------------------------------------------------
 
     const { row, messageId } = stateData;
     const { workSheet } = await getSheets();
@@ -197,6 +194,8 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const task = rows[parseInt(row) - 2];
 
     if (task && task.get('AssignedTo') === user.name && task.get('Status') === "Assigned") {
+        const today = new Date().toLocaleDateString('en-CA'); // "YYYY-MM-DD" ফরম্যাট
+        
         task.set('PhoneNumber', trimmedPhoneNumber);
         task.set('Status', "Completed");
         await task.save();
@@ -220,24 +219,18 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     }
 }
 
-
 async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
-    const { workSheet } = await getSheets();
-    await workSheet.loadHeaderRow();
-    const rows = await workSheet.getRows();
-    const task = rows[parseInt(rowToReject) - 2];
+    // ...
 
     if (task && task.get('Status') === "Assigned" && task.get('AssignedTo') === user.name) {
         let responseText = "";
+        const today = new Date().toLocaleDateString('en-CA'); // "YYYY-MM-DD" ফরম্যাট
+
         if (reason === "problem") {
-            task.set('Status', "Rejected"); // GAS এই স্ট্যাটাস দেখে রঙ করবে
+            task.set('Status', "Rejected");
+           
             await task.save();
             responseText = `কাজটি (সারি ${rowToReject}) সফলভাবে বাতিল করা হয়েছে।`;
-        } else if (reason === "later") {
-            task.set('Status', "Available"); // কাজটি আবার তালিকার জন্য উন্মুক্ত করা হলো
-            task.set('AssignedTo', ""); // অ্যাসাইন করা নাম মুছে ফেলা হলো
-            await task.save();
-            responseText = `কাজটি আবার তালিকার শুরুতে যুক্ত করা হয়েছে।`;
         }
         
         if (messageId) {
