@@ -218,7 +218,7 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         delete userStates[user.id];
         bot.sendMessage(chatId, "দুঃখিত, এই কাজটি জমা দেওয়ার সময় একটি সমস্যা হয়েছে।", { reply_markup: getMainMenuKeyboard() });
     }
-}}
+}
 
 async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
     const { workSheet } = await getSheets();
@@ -254,7 +254,7 @@ async function handleBackToTask(chatId, taskRow, messageId) {
     const { workSheet } = await getSheets();
     await workSheet.loadHeaderRow();
     const rows = await workSheet.getRows();
-    const task = rows[parseInt(taskRow) - 2];
+    const task = rows.find(r => r.rowNumber == taskRow);
 
     if (task) {
         const message = `<b>আপনার নতুন কাজ</b>\n\n` +
