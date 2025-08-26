@@ -34,17 +34,17 @@ const serviceAccountAuth = new JWT({
 // ইউজার স্টেট সংরক্ষণের জন্য (PropertiesService-এর বিকল্প)
 const userStates = {};
 
-// ------ ৩. গুগল শীট কানেকশন ফাংশন ------
 async function getSheets() {
     const workDoc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
     await workDoc.loadInfo();
-    const workSheet = workDoc.sheetsByIndex[0];
+    const workSheet = workDoc.sheetsByTitle[WORK_SHEET_NAME]; // শিরোনাম দিয়ে ধরা নিরাপদ
+    const statsTab = workDoc.sheetsByTitle["Stats"]; // নতুন Stats ট্যাব
 
     const statsDoc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
     await statsDoc.loadInfo();
-    const statsSheet = statsDoc.sheetsByIndex[0];
+    const statsSheet = statsDoc.sheetsByTitle[WORK_SHEET_NAME];
     
-    return { workSheet, statsSheet };
+    return { workSheet, statsSheet, statsTab }; // statsTab রিটার্ন করা হচ্ছে
 }
 
 // ------ ৪. Webhook এবং টেলিগ্রাম ইনপুট হ্যান্ডেল করা ------
@@ -125,7 +125,7 @@ async function handleCommand(msg, command, fromId, messageId) {
 // ------ ৬. বটের মূল ফাংশনগুলো (আপডেটেড) ------
 
 async function handleGetTask(chatId, user) {
-    const { workSheet } = await getSheets();
+    const { workSheet, statsTab } = await getSheets();
     
     // ডেটা পড়ার আগে নিশ্চিত করা যে হেডারগুলো লোড হয়েছে
     await workSheet.loadHeaderRow(); 
@@ -143,15 +143,23 @@ async function handleGetTask(chatId, user) {
     // মূল পরিবর্তন: row.get('HeaderName') ব্যবহার করা হচ্ছে
     const availableTask = rows.find(row => row.get('Status') === 'Available');
     if (availableTask) {
-        // ডেটা আপডেট করার জন্য .set('HeaderName', value) ব্যবহার করা হচ্ছে
+        await statsTab.loadCells('A2:B2'); // সেল A2 এবং B2 লোড করা হচ্ছে
+        const cellX = statsTab.getCell(1, 0); // (সারি ১, কলাম ০) অর্থাৎ A2
+        const cellY = statsTab.getCell(1, 1); // (সারি ১, কলাম ১) অর্থাৎ B2
+        
+        const stats = {
+            x: cellX.value || 0,
+            y: cellY.value || 0
+        };
+        const title = `আপনার নতুন কাজ (${stats.x}/${stats.y})`;
+        // -------------------------
+
         availableTask.set('Status', 'Assigned');
         availableTask.set('AssignedTo', user.name);
-        await availableTask.save(); // পরিবর্তন সেভ করা
+        await availableTask.save();
 
-        // .rowNumber এর পরিবর্তে rowIndex ব্যবহার করা নিরাপদ, তবে rowNumber কাজ করার কথা
-        const taskRow = availableTask.rowNumber; 
-        
-        const message = `<b>আপনার নতুন কাজ</b>\n\n` +
+        const taskRow = availableTask.rowNumber;
+        const message = `<b>${title}</b>\n\n` + // আপডেট করা টাইটেল
                         `<b>Email: </b> <code>${availableTask.get('Email')}</code>\n` +
                         `<b>Password: </b> <code>${availableTask.get('Password')}</code>\n` +
                         `<b>Recovery Mail:</b> <code>${availableTask.get('Recovery Mail')}</code>\n\n` +
