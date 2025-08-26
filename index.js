@@ -177,7 +177,7 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ফরম্যাট: (123) 456-7890
 
     if (!phoneRegex.test(trimmedPhoneNumber)) {
-        bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে `(123) 456-7890` এই ফরম্যাটে আবার পাঠান।");
+        bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে সঠিক ফরম্যাটে আবার পাঠান।");
         return; // যদি ফরম্যাট না মেলে, তাহলে ফাংশনটি এখানেই শেষ হয়ে যাবে
     }
     // --------------------------------------------------------------------
