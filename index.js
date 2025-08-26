@@ -120,6 +120,8 @@ async function handleCommand(msg, command, fromId, messageId) {
         bot.sendMessage(chatId, "একটি মারাত্মক সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
     }
 }
+
+
 // ------ ৬. বটের মূল ফাংশনগুলো (আপডেটেড) ------
 
 async function handleGetTask(chatId, user) {
