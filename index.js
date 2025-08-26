@@ -16,6 +16,7 @@ const WORK_SHEET_ID = process.env.WORK_SHEET_ID;
 const STATS_SHEET_ID = process.env.STATS_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 const SERVER_URL = process.env.SERVER_URL;
+const WORK_SHEET_NAME = "Sheet1"; // অথবা আপনার কাজের শীটের ট্যাবের যে নাম
 
 // ------ ২. সার্ভিস এবং বট চালু করা ------
 const app = express();
@@ -34,17 +35,17 @@ const serviceAccountAuth = new JWT({
 // ইউজার স্টেট সংরক্ষণের জন্য (PropertiesService-এর বিকল্প)
 const userStates = {};
 
+// ------ ৩. গুগল শীট কানেকশন ফাংশন (সংশোধিত) ------
 async function getSheets() {
     const workDoc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
     await workDoc.loadInfo();
-    const workSheet = workDoc.sheetsByTitle[WORK_SHEET_NAME]; // শিরোনাম দিয়ে ধরা নিরাপদ
-    const statsTab = workDoc.sheetsByTitle["Stats"]; // নতুন Stats ট্যাব
+    const workSheet = workDoc.sheetsByIndex[0]; // শিরোনামের পরিবর্তে ইনডেক্স ব্যবহার করা নিরাপদ
 
     const statsDoc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
     await statsDoc.loadInfo();
-    const statsSheet = statsDoc.sheetsByTitle[WORK_SHEET_NAME];
+    const statsSheet = statsDoc.sheetsByIndex[0]; // শিরোনামের পরিবর্তে ইনডেক্স ব্যবহার করা নিরাপদ
     
-    return { workSheet, statsSheet, statsTab }; // statsTab রিটার্ন করা হচ্ছে
+    return { workSheet, statsSheet };
 }
 
 // ------ ৪. Webhook এবং টেলিগ্রাম ইনপুট হ্যান্ডেল করা ------
