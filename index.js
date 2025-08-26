@@ -16,7 +16,7 @@ const WORK_SHEET_ID = process.env.WORK_SHEET_ID;
 const STATS_SHEET_ID = process.env.STATS_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 const SERVER_URL = process.env.SERVER_URL;
-const WORK_SHEET_NAME = "Stats"; // অথবা আপনার কাজের শীটের ট্যাবের যে নাম
+const WORK_SHEET_NAME = "Sheet1"; // অথবা আপনার কাজের শীটের ট্যাবের যে নাম
 
 // ------ ২. সার্ভিস এবং বট চালু করা ------
 const app = express();
@@ -31,23 +31,58 @@ const serviceAccountAuth = new JWT({
     key: creds.private_key.replace(/\\n/g, '\n'),
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
-const userStates = {};
-// ------ ৩. গুগল শীট কানেকশন ফাংশন (চূড়ান্ত ভার্সন) ------
-async function getSheets() {
-    // Work Sheet এবং এর ভেতরের ট্যাবগুলো অ্যাক্সেস করা
-    const workDoc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
-    await workDoc.loadInfo();
-    const workSheet = workDoc.sheetsByTitle["Sheet1"]; // আপনার মূল কাজের ট্যাব
-    const statsTab = workDoc.sheetsByTitle["Stats"];   // আপনার পরিসংখ্যান ট্যাব
 
-    // User Stats শীট অ্যাক্সেস করা
-    const statsDoc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
-    await statsDoc.loadInfo();
-    const userStatsSheet = statsDoc.sheetsByIndex[0];
-    
-    // সবগুলোকে একসাথে রিটার্ন করা
-    return { workSheet, statsTab, userStatsSheet };
+
+// --- ক্যাশিং এর জন্য ভ্যারিয়েবল ---
+const userStates = {};
+let workSheetCache = [];
+let lastCacheTime = 0;
+const CACHE_DURATION = 30 * 1000;
+// -----------------------------
+// ------ ৩. গুগল শীট কানেকশন এবং ক্যাশিং ------
+
+// এই ফাংশনটি Work Sheet এর ডেটা ক্যাশ করবে এবং সেখান থেকে দেবে
+async function getWorkSheetRows(forceRefresh = false) {
+    const now = Date.now();
+    // যদি ক্যাশ ৩০ সেকেন্ডের বেশি পুরনো হয় বা জোর করে রিফ্রেশ করতে বলা হয়
+    if (forceRefresh || (now - lastCacheTime > CACHE_DURATION) || workSheetCache.length === 0) {
+        try {
+            console.log("Refreshing cache from Google Sheets...");
+            const doc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
+            await doc.loadInfo();
+            const sheet = doc.sheetsByTitle[WORK_SHEET_NAME];            if (sheet) {
+                await sheet.loadHeaderRow();
+                workSheetCache = await sheet.getRows();
+                lastCacheTime = now;
+                console.log(`Cache updated with ${workSheetCache.length} rows.`);
+            } else {
+                console.error("'Sheet1' not found in Work Sheet.");
+                return []; // খালি অ্যারে রিটার্ন করা
+            }
+        } catch (error) {
+            console.error("Error refreshing cache:", error);
+            return workSheetCache; // এরর হলে পুরনো ক্যাশ ব্যবহার করা
+        }
+    }
+    return workSheetCache;
 }
+
+// User Stats শীটের জন্য Helper ফাংশন
+async function getUserStatsSheet() {
+    const doc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
+    await doc.loadInfo();
+    const sheet = doc.sheetsByIndex[0];
+    await sheet.loadHeaderRow();
+    return sheet;
+}
+
+// Stats ট্যাবের জন্য Helper ফাংশন
+async function getStatsTab() {
+    const doc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
+    await doc.loadInfo();
+    return doc.sheetsByTitle["Stats"];
+}
+
 
 
 // ------ ৪. Webhook এবং টেলিগ্রাম ইনপুট হ্যান্ডেল করা ------
@@ -128,19 +163,11 @@ async function handleCommand(msg, command, fromId, messageId) {
 // ------ ৬. বটের মূল ফাংশনগুলো (আপডেটেড) ------
 
 async function handleGetTask(chatId, user) {
-    // getSheets থেকে এখন workSheet এবং statsTab দুটোই আসছে
-    const { workSheet, statsTab } = await getSheets(); 
-    
+    const rows = await getWorkSheetRows();
     // ডিবাগিং: নিশ্চিত করা যে ট্যাবগুলো লোড হয়েছে
-    if (!workSheet || !statsTab) {
-        console.error("Error: Could not load 'Sheet1' or 'Stats' tab.");
-        bot.sendMessage(chatId, "শীটের সাথে সংযোগ করতে একটি সমস্যা হয়েছে।");
-        return;
-    }
+    
 
-    await workSheet.loadHeaderRow();
-    const rows = await workSheet.getRows();
-
+    
     const existingTask = rows.find(row => row.get('AssignedTo') === user.name && row.get('Status') === 'Assigned');
     if (existingTask) {
         bot.sendMessage(chatId, "আপনার কাছে ইতিমধ্যে একটি কাজ অসমাপ্ত রয়েছে।");
@@ -149,6 +176,7 @@ async function handleGetTask(chatId, user) {
 
     const availableTask = rows.find(row => row.get('Status') === 'Available');
     if (availableTask) {
+        const statsTab = await getStatsTab();
         // Stats ট্যাব থেকে x এবং y এর মান পড়া
         await statsTab.loadCells('A2:B2');
         const cellX = statsTab.getCell(1, 0); // A2
@@ -163,6 +191,7 @@ async function handleGetTask(chatId, user) {
         availableTask.set('Status', 'Assigned');
         availableTask.set('AssignedTo', user.name);
         await availableTask.save();
+        await getWorkSheetRows(true);
 
         const taskRow = availableTask.rowNumber;
         const message = `<b>${title}</b>\n\n` +
@@ -189,9 +218,7 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     }
 
     const { row, messageId } = stateData;
-    const { workSheet } = await getSheets();
-    await workSheet.loadHeaderRow();
-    const rows = await workSheet.getRows();
+    const rows = await getWorkSheetRows();
     
     // সারি খুঁজে বের করার জন্য সবচেয়ে নির্ভরযোগ্য পদ্ধতি
     const task = rows.find(r => r.rowNumber == row);
@@ -200,7 +227,13 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         task.set('PhoneNumber', trimmedPhoneNumber);
         task.set('Status', "Completed");
         await task.save();
-        
+        const statsTab = await getStatsTab();
+        await statsTab.loadCells('A2');
+        const cellX = statsTab.getCell(1, 0);
+        cellX.value = (cellX.value || 0) + 1;
+        await statsTab.saveUpdatedCells();
+        await getWorkSheetRows(true);
+
         await updateUserStats(user, 1);
         delete userStates[user.id];
         
@@ -221,9 +254,9 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
 }
 
 async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
-    const { workSheet } = await getSheets();
-    await workSheet.loadHeaderRow();
-    const rows = await workSheet.getRows();
+    const rows = await getWorkSheetRows();
+    
+    
 
     // সারি খুঁজে বের করার জন্য সবচেয়ে নির্ভরযোগ্য পদ্ধতি
     const task = rows.find(r => r.rowNumber == rowToReject);
@@ -231,13 +264,22 @@ async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
     if (task && task.get('Status') === "Assigned" && task.get('AssignedTo') === user.name) {
         let responseText = "";
         if (reason === "problem") {
+            const statsTab = await getStatsTab();
+            await statsTab.loadCells('A2');
+            const cellX = statsTab.getCell(1, 0);
+            cellX.value = (cellX.value || 0) + 1;
+            await statsTab.saveUpdatedCells();
             task.set('Status', "Rejected");
             await task.save();
+            await getWorkSheetRows(true);
+            
             responseText = `কাজটি (সারি ${rowToReject}) সফলভাবে বাতিল করা হয়েছে।`;
         } else if (reason === "later") {
             task.set('Status', "Available");
             task.set('AssignedTo', "");
             await task.save();
+            await getWorkSheetRows(true);
+            
             responseText = `কাজটি আবার তালিকার শুরুতে যুক্ত করা হয়েছে।`;
         }
         
@@ -251,9 +293,8 @@ async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
 }
 
 async function handleBackToTask(chatId, taskRow, messageId) {
-    const { workSheet } = await getSheets();
-    await workSheet.loadHeaderRow();
-    const rows = await workSheet.getRows();
+    const rows = await getWorkSheetRows();
+    
     const task = rows.find(r => r.rowNumber == taskRow);
 
     if (task) {
@@ -275,7 +316,7 @@ async function handleBackToTask(chatId, taskRow, messageId) {
 // ------ ৭. ইউজার এবং স্ট্যাটাস ম্যানেজমেন্ট ফাংশন ------
 
 async function findUser(userId) {
-    const { userStatsSheet } = await getSheets();
+    const userStatsSheet = await getUserStatsSheet(); // <<<--- পরিবর্তন
     const rows = await userStatsSheet.getRows();
     const userRow = rows.find(row => String(row.get('UserID')) === String(userId));
     if (userRow) {
@@ -292,7 +333,7 @@ async function findUser(userId) {
 }
 
 async function registerUser(userId, userName) {
-    const { userStatsSheet } = await getSheets();
+    const userStatsSheet = await getUserStatsSheet();
     await userStatsSheet.addRow({
         UserID: userId,
         UserName: userName,
@@ -303,7 +344,7 @@ async function registerUser(userId, userName) {
 }
 
 async function updateUserStats(user, count) {
-    const { userStatsSheet } = await getSheets();
+    const userStatsSheet = await getUserStatsSheet(); // <<<--- পরিবর্তন
     const rows = await userStatsSheet.getRows();
     const userRow = rows.find(r => r.rowNumber == user.row);
 
