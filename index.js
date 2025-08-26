@@ -172,27 +172,30 @@ async function handleGetTask(chatId, user) {
 
 async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const trimmedPhoneNumber = phoneNumber.trim();
-    // const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ইচ্ছা হলে ভ্যালিডেশন রাখতে পারেন
+    
+    // --- মূল পরিবর্তন: ফোন নম্বর ফরম্যাট যাচাইকরণ আবার চালু করা হলো ---
+    const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ফরম্যাট: (123) 456-7890
+
+    if (!phoneRegex.test(trimmedPhoneNumber)) {
+        bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে `(123) 456-7890` এই ফরম্যাটে আবার পাঠান।");
+        return; // যদি ফরম্যাট না মেলে, তাহলে ফাংশনটি এখানেই শেষ হয়ে যাবে
+    }
+    // --------------------------------------------------------------------
 
     const { row, messageId } = stateData;
     const { workSheet } = await getSheets();
-    await workSheet.loadHeaderRow(); // হেডার লোড করা
+    await workSheet.loadHeaderRow();
     const rows = await workSheet.getRows();
-    
-    // সারি নম্বর দিয়ে সঠিক সারিটি খুঁজে বের করা
-    // .rowNumber ব্যবহার না করে rowIndex ব্যবহার করা নিরাপদ
-    const task = rows[parseInt(row) - 2]; // rowIndex হলো 0-based, তাই (সারি নম্বর - ২)
+    const task = rows[parseInt(row) - 2];
 
     if (task && task.get('AssignedTo') === user.name && task.get('Status') === "Assigned") {
-        // মূল পরিবর্তন: .set() ব্যবহার করে ডেটা আপডেট করা
-        task.set('PhoneNumber', trimmedPhoneNumber); // আপনার শীটের হেডার যদি PhoneNumber হয়
+        task.set('PhoneNumber', trimmedPhoneNumber);
         task.set('Status', "Completed");
-        await task.save(); // পরিবর্তন সেভ করা
+        await task.save();
         
         await updateUserStats(user, 1);
         delete userStates[user.id];
         
-        // ---- সমস্যা ২ এর সমাধান নিচে যোগ করা হয়েছে ----
         const taskDetails = `<b>কাজটি সম্পন্ন হয়েছে (সারি ${row}):</b>\n\n`+
                             `<b>Email:</b> <code>${task.get('Email')}</code>\n` +
                             `<b>Password:</b> <code>${task.get('Password')}</code>\n` +
@@ -208,6 +211,7 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         bot.sendMessage(chatId, "দুঃখিত, এই কাজটি জমা দেওয়ার সময় একটি সমস্যা হয়েছে।", { reply_markup: getMainMenuKeyboard() });
     }
 }
+
 
 async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
     const { workSheet } = await getSheets();
