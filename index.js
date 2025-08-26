@@ -16,7 +16,7 @@ const WORK_SHEET_ID = process.env.WORK_SHEET_ID;
 const STATS_SHEET_ID = process.env.STATS_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 const SERVER_URL = process.env.SERVER_URL;
-const WORK_SHEET_NAME = "Sheet1"; // অথবা আপনার কাজের শীটের ট্যাবের যে নাম
+const WORK_SHEET_NAME = "Stats"; // অথবা আপনার কাজের শীটের ট্যাবের যে নাম
 
 // ------ ২. সার্ভিস এবং বট চালু করা ------
 const app = express();
