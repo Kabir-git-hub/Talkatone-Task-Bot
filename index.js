@@ -212,7 +212,7 @@ async function handleCommand(msg, command, fromId, messageId) {
 
 // ------ নতুন: অ্যাডমিন প্যানেলের জন্য ফাংশন ------
 async function showAdminPanel(chatId) {
-    const userStatsSheet = await getUserStatsSheet();
+    const userStatsSheet = await getUserStatsRows();
     const rows = await userStatsSheet.getRows();
 
     if (rows.length === 0) {
@@ -247,7 +247,7 @@ async function showAdminPanel(chatId) {
 // ------ নতুন: অ্যাডমিনদের জন্য ব্যবহারকারী ব্যবস্থাপনার ফাংশন ------
 async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     try {
-        const userStatsSheet = await getUserStatsSheet();
+        const userStatsSheet = await getUserStatsRows();
         const rows = await userStatsSheet.getRows();
         const userRow = rows.find(row => String(row.get('UserID')) === String(targetUserId));
 
@@ -426,7 +426,7 @@ async function handleBackToTask(chatId, taskRow, messageId) {
 // ------ ৭. ইউজার এবং স্ট্যাটাস ম্যানেজমেন্ট ফাংশন ------
 
 async function findUser(userId) {
-    const userStatsSheet = await getUserStatsSheet();
+    const userStatsSheet = await getUserStatsRows();
     const rows = await userStatsSheet.getRows();
     const userRow = rows.find(row => String(row.get('UserID')) === String(userId));
     if (userRow) {
@@ -445,7 +445,7 @@ async function findUser(userId) {
 
 async function registerUser(userId, userName) {
     // --- মূল পরিবর্তন: userStatsSheet ভ্যারিয়েবলটি এখানে ডিফাইন করা হয়েছে ---
-    const userStatsSheet = await getUserStatsSheet(); 
+    const userStatsSheet = await getUserStatsRows(); 
     
     // User Stats শীটে নতুন ব্যবহারকারীর তথ্য যোগ করা
     await userStatsSheet.addRow({
@@ -473,7 +473,7 @@ async function registerUser(userId, userName) {
 }
 
 async function updateUserStats(user, count) {
-    const userStatsSheet = await getUserStatsSheet(); // <<<--- পরিবর্তন
+    const userStatsSheet = await getUserStatsRows(); // <<<--- পরিবর্তন
     const rows = await userStatsSheet.getRows();
     const userRow = rows.find(r => r.rowNumber == user.row);
 
