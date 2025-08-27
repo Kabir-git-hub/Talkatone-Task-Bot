@@ -489,28 +489,32 @@ async function registerUser(userId, userName) {
     }
 }
 
+// ------ ৭. ইউজার এবং স্ট্যাটাস ম্যানেজমেন্ট ফাংশন (সংশোধিত) ------
 async function updateUserStats(user, count) {
-    const userStatsSheet = await getUserStatsRows(); // <<<--- পরিবর্তন
-    const rows = await userStatsSheet.getRows();
+    // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা ব্যবহারকারীদের তালিকা (Array) নেওয়া হচ্ছে ---
+    const rows = await getUserStatsRows();
+    
     const userRow = rows.find(r => r.rowNumber == user.row);
 
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const lastDateStr = user.date ? new Date(user.date).toISOString().split('T')[0] : null;
+    if (userRow) {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        const lastDateStr = user.date ? new Date(user.date).toISOString().split('T')[0] : null;
 
-    let dailyCount = parseInt(userRow.get('DailyCompleted')) || 0;
-    if (todayStr === lastDateStr) {
-        dailyCount += count;
-    } else {
-        dailyCount = count;
-    }
+        let dailyCount = parseInt(userRow.get('DailyCompleted')) || 0;
+        if (todayStr === lastDateStr) {
+            dailyCount += count;
+        } else {
+            dailyCount = count;
+        }
 
-    userRow.set('TotalCompleted', (parseInt(userRow.get('TotalCompleted')) || 0) + count);
-    userRow.set('DailyCompleted', dailyCount);
-    userRow.set('LastCompletedDate', today.toLocaleDateString('en-CA')); // YYYY-MM-DD format
-    await userRow.save();
-    await getUserStatsRows(true);
+        userRow.set('TotalCompleted', (parseInt(userRow.get('TotalCompleted')) || 0) + count);
+        userRow.set('DailyCompleted', dailyCount);
+        userRow.set('LastCompletedDate', today.toLocaleDateString('en-CA'));
+        await userRow.save();
+        await getUserStatsRows(true);
         console.log(`User Stats cache refreshed after updating stats for: ${user.name}`);
+    }
 }
 
 async function updateAndShowStats(chatId, user) {
