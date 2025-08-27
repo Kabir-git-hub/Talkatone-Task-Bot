@@ -426,8 +426,7 @@ async function handleBackToTask(chatId, taskRow, messageId) {
 // ------ ৭. ইউজার এবং স্ট্যাটাস ম্যানেজমেন্ট ফাংশন ------
 
 async function findUser(userId) {
-    const userStatsSheet = await getUserStatsRows();
-    const rows = await userStatsSheet.getRows();
+    const rows = await getUserStatsRows(); // <<<--- সরাসরি ক্যাশিং ফাংশন কল করা হচ্ছে
     const userRow = rows.find(row => String(row.get('UserID')) === String(userId));
     if (userRow) {
         return {
@@ -437,17 +436,15 @@ async function findUser(userId) {
             total: parseInt(userRow.get('TotalCompleted')) || 0,
             daily: parseInt(userRow.get('DailyCompleted')) || 0,
             date: userRow.get('LastCompletedDate'),
-            access: userRow.get('Access') ? userRow.get('Access').toLowerCase() : 'no' // <<<--- নতুন: অ্যাক্সেস তথ্য যোগ করা হলো
+            access: userRow.get('Access') ? userRow.get('Access').toLowerCase() : 'no'
         };
     }
     return null;
 }
 
 async function registerUser(userId, userName) {
-    // --- মূল পরিবর্তন: userStatsSheet ভ্যারিয়েবলটি এখানে ডিফাইন করা হয়েছে ---
-    const userStatsSheet = await getUserStatsRows(); 
+    const userStatsSheet = await getUserStatsSheet(); // <<<--- মূল শীট অবজেক্ট পাওয়া
     
-    // User Stats শীটে নতুন ব্যবহারকারীর তথ্য যোগ করা
     await userStatsSheet.addRow({
         UserID: userId,
         UserName: userName,
@@ -457,10 +454,8 @@ async function registerUser(userId, userName) {
         Access: "no"
     });
     
-    // User Stats ক্যাশটি তাৎক্ষণিকভাবে রিফ্রেশ করা
-    await getUserStatsRows(true);
+    await getUserStatsRows(true); // ক্যাশ রিফ্রেশ করা
     
-    // অ্যাডমিনকে নোটিফিকেশন পাঠানো (যদি অ্যাডমিন আইডি সেট করা থাকে)
     if (ADMIN_ID) {
         const adminMessage = `নতুন ব্যবহারকারী: ${userName} (\`${userId}\`)\n\nঅনুমোদন দিতে অ্যাডমিন প্যানেল ব্যবহার করুন।`;
         bot.sendMessage(ADMIN_ID, adminMessage, { 
