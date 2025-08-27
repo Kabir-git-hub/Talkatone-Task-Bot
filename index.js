@@ -274,30 +274,33 @@ async function showAdminPanel(chatId) {
     });
 }
 
-/// ------ নতুন: অ্যাডমিনদের জন্য ব্যবহারকারী ব্যবস্থাপনার ফাংশন (সংশোধিত) ------
+// ------ নতুন: অ্যাডমিনদের জন্য ব্যবহারকারী ব্যবস্থাপনার ফাংশন (চূড়ান্ত ভার্সন) ------
 async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     try {
-        // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা ব্যবহারকারীদের তালিকা (Array) নেওয়া হচ্ছে ---
         const rows = await getUserStatsRows();
-        
         const userRow = rows.find(row => String(row.get('UserID')) === String(targetUserId));
 
         if (userRow) {
             userRow.set('Access', accessStatus);
             await userRow.save();
-            await getUserStatsRows(true); // ক্যাশ রিফ্রেশ করা
+            await getUserStatsRows(true); // মূল ডেটা ক্যাশ রিফ্রেশ করা
+
+            // --- মূল পরিবর্তন: ব্যবহারকারীর সেশন ক্যাশ আপডেট করা ---
+            if (userStates[targetUserId] && userStates[targetUserId].user) {
+                userStates[targetUserId].user.access = accessStatus;
+                console.log(`Session cache updated for user ${targetUserId}. New access: ${accessStatus}`);
+            }
+            // ----------------------------------------------------
 
             const userName = userRow.get('UserName');
             bot.sendMessage(adminChatId, `"${userName}"-এর অ্যাক্সেস "${accessStatus}" করা হয়েছে।`);
             
-            // ব্যবহারকারীকে নোটিফিকেশন পাঠানো
             if (accessStatus === 'yes') {
                 bot.sendMessage(targetUserId, "অভিনন্দন! অ্যাডমিন আপনার অ্যাকাউন্ট অনুমোদন করেছেন। আপনি এখন বট ব্যবহার করতে পারবেন।", { reply_markup: getMainMenuKeyboard(targetUserId) });
             } else {
                 bot.sendMessage(targetUserId, "দুঃখিত, অ্যাডমিন আপনার অ্যাকাউন্টের অ্যাক্সেস স্থগিত করেছেন।");
             }
 
-            // অ্যাডমিন প্যানেল রিফ্রেশ করে দেখানো
             await showAdminPanel(adminChatId);
         } else {
             bot.sendMessage(adminChatId, `দুঃখিত, ${targetUserId} ID সম্পন্ন কোনো ব্যবহারকারী নেই।`);
@@ -362,9 +365,19 @@ async function handleGetTask(chatId, user) {
 }
 
 
+// ------ ৬. বটের মূল ফাংশনগুলো (সংশোধিত) ------
+
 async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const trimmedPhoneNumber = phoneNumber.trim();
-    // ... ফোন নম্বর ফরম্যাট চেক অপরিবর্তিত ...
+    
+    // --- মূল পরিবর্তন: ফোন নম্বর ফরম্যাট যাচাইকরণ আবার সঠিকভাবে চালু করা হলো ---
+    const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ফরম্যাট: (123) 456-7890
+
+    if (!phoneRegex.test(trimmedPhoneNumber)) {
+        bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে `(123) 456-7890` এই ফরম্যাটে আবার পাঠান।");
+        return; // যদি ফরম্যাট না মেলে, তাহলে ফাংশনটি এখানেই শেষ হয়ে যাবে
+    }
+    // --------------------------------------------------------------------
 
     const { row, messageId } = stateData;
     const rows = await getWorkSheetRows();
@@ -374,9 +387,11 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         task.set('PhoneNumber', trimmedPhoneNumber);
         task.set('Status', "Completed");
         await task.save();
-        await getWorkSheetRows(true); // শুধু ক্যাশ রিফ্রেশ করা হচ্ছে
-
+        await getWorkSheetRows(true);
+        
         await updateUserStats(user, 1);
+        
+        // স্টেট পরিষ্কার করা
         delete userStates[user.id];
         
         const taskDetails = `<b>কাজটি সম্পন্ন হয়েছে (সারি ${row}):</b>\n\n`+
@@ -388,10 +403,11 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         if (messageId) {
             bot.editMessageText(taskDetails, { chat_id: chatId, message_id: messageId, parse_mode: 'HTML', reply_markup: {} });
         }
-        bot.sendMessage(chatId, `✅ ধন্যবাদ! কাজটি সফলভাবে জমা হয়েছে।`, { reply_markup: getMainMenuKeyboard() });
+        bot.sendMessage(chatId, `✅ ধন্যবাদ! কাজটি সফলভাবে জমা হয়েছে।`, { reply_markup: getMainMenuKeyboard(user.id) });
     } else {
+        // যদি কোনো কারণে কাজ খুঁজে না পাওয়া যায়, তাহলেও স্টেট পরিষ্কার করা
         delete userStates[user.id];
-        bot.sendMessage(chatId, "দুঃখিত, এই কাজটি জমা দেওয়ার সময় একটি সমস্যা হয়েছে।", { reply_markup: getMainMenuKeyboard() });
+        bot.sendMessage(chatId, "দুঃখিত, এই কাজটি জমা দেওয়ার সময় একটি সমস্যা হয়েছে।", { reply_markup: getMainMenuKeyboard(user.id) });
     }
 }
 
