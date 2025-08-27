@@ -274,11 +274,12 @@ async function showAdminPanel(chatId) {
     });
 }
 
-// ------ নতুন: অ্যাডমিনদের জন্য ব্যবহারকারী ব্যবস্থাপনার ফাংশন ------
+/// ------ নতুন: অ্যাডমিনদের জন্য ব্যবহারকারী ব্যবস্থাপনার ফাংশন (সংশোধিত) ------
 async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     try {
-        const userStatsSheet = await getUserStatsRows();
-        const rows = await userStatsSheet.getRows();
+        // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা ব্যবহারকারীদের তালিকা (Array) নেওয়া হচ্ছে ---
+        const rows = await getUserStatsRows();
+        
         const userRow = rows.find(row => String(row.get('UserID')) === String(targetUserId));
 
         if (userRow) {
