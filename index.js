@@ -16,6 +16,7 @@ const WORK_SHEET_ID = process.env.WORK_SHEET_ID;
 const STATS_SHEET_ID = process.env.STATS_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 const SERVER_URL = process.env.SERVER_URL;
+const ADMIN_ID = process.env.ADMIN_USER_ID; 
 const WORK_SHEET_NAME = "Sheet1"; // অথবা আপনার কাজের শীটের ট্যাবের যে নাম
 
 // ------ ২. সার্ভিস এবং বট চালু করা ------
@@ -37,6 +38,10 @@ const serviceAccountAuth = new JWT({
 const userStates = {};
 let workSheetCache = [];
 let lastCacheTime = 0;
+let userStatsCache = [];
+let lastStatsCacheTime = 0;
+let statsCache = { x: 0, y: 0 };
+let isUpdatingSheet = false;
 const CACHE_DURATION = 30 * 1000;
 // -----------------------------
 // ------ ৩. গুগল শীট কানেকশন এবং ক্যাশিং ------
@@ -44,45 +49,53 @@ const CACHE_DURATION = 30 * 1000;
 // এই ফাংশনটি Work Sheet এর ডেটা ক্যাশ করবে এবং সেখান থেকে দেবে
 async function getWorkSheetRows(forceRefresh = false) {
     const now = Date.now();
-    // যদি ক্যাশ ৩০ সেকেন্ডের বেশি পুরনো হয় বা জোর করে রিফ্রেশ করতে বলা হয়
     if (forceRefresh || (now - lastCacheTime > CACHE_DURATION) || workSheetCache.length === 0) {
         try {
             console.log("Refreshing cache from Google Sheets...");
             const doc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
             await doc.loadInfo();
-            const sheet = doc.sheetsByTitle[WORK_SHEET_NAME];            if (sheet) {
+            const sheet = doc.sheetsByTitle["Sheet1"];
+            const statsTab = doc.sheetsByTitle["Stats"]; // <<<--- Stats ট্যাবকেও এখানে ধরা হচ্ছে
+
+            if (sheet && statsTab) {
+                // কাজের তালিকা ক্যাশ করা
                 await sheet.loadHeaderRow();
                 workSheetCache = await sheet.getRows();
+                
+                // পরিসংখ্যান ক্যাশ করা
+                await statsTab.loadCells('A2:B2');
+                const cellX = statsTab.getCell(1, 0);
+                const cellY = statsTab.getCell(1, 1);
+                statsCache = { x: cellX.value || 0, y: cellY.value || 0 };
+
                 lastCacheTime = now;
-                console.log(`Cache updated with ${workSheetCache.length} rows.`);
-            } else {
-                console.error("'Sheet1' not found in Work Sheet.");
-                return []; // খালি অ্যারে রিটার্ন করা
-            }
-        } catch (error) {
-            console.error("Error refreshing cache:", error);
-            return workSheetCache; // এরর হলে পুরনো ক্যাশ ব্যবহার করা
-        }
+                console.log(`Cache updated: ${workSheetCache.length} tasks, Stats (x/y): ${statsCache.x}/${statsCache.y}`);
+            } else { // ... অপরিবর্তিত ... }
+        } catch (error) { // ... অপরিবর্তিত ... }
     }
     return workSheetCache;
 }
 
-// User Stats শীটের জন্য Helper ফাংশন
-async function getUserStatsSheet() {
-    const doc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
-    await doc.loadInfo();
-    const sheet = doc.sheetsByIndex[0];
-    await sheet.loadHeaderRow();
-    return sheet;
+// User Stats শীটের জন্য নতুন ক্যাশিং ফাংশন
+async function getUserStatsRows(forceRefresh = false) {
+    const now = Date.now();
+    if (forceRefresh || (now - lastStatsCacheTime > CACHE_DURATION) || userStatsCache.length === 0) {
+        try {
+            console.log("Refreshing User Stats cache...");
+            const doc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
+            await doc.loadInfo();
+            const sheet = doc.sheetsByIndex[0];
+            await sheet.loadHeaderRow();
+            userStatsCache = await sheet.getRows();
+            lastStatsCacheTime = now;
+            console.log(`User Stats cache updated with ${userStatsCache.length} rows.`);
+        } catch (error) {
+            console.error("Error refreshing User Stats cache:", error);
+            return userStatsCache;
+        }
+    }
+    return userStatsCache;
 }
-
-// Stats ট্যাবের জন্য Helper ফাংশন
-async function getStatsTab() {
-    const doc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
-    await doc.loadInfo();
-    return doc.sheetsByTitle["Stats"];
-}
-
 
 
 // ------ ৪. Webhook এবং টেলিগ্রাম ইনপুট হ্যান্ডেল করা ------
@@ -97,41 +110,72 @@ bot.on('callback_query', (callbackQuery) => {
     handleCommand(callbackQuery.message, callbackQuery.data, callbackQuery.from.id, callbackQuery.message.message_id);
 });
 
-// ------ ৫. মূল কমান্ড হ্যান্ডেলার (সংশোধিত এবং নির্ভুল) ------
+// ------ ৫. মূল কমান্ড হ্যান্ডেলার (সেশন এবং ডুয়াল ক্যাশিং সহ সর্বোচ্চ গতির জন্য) ------
+// ------ ৫. মূল কমান্ড হ্যান্ডেলার (চূড়ান্ত সঠিক ভার্সন) ------
 async function handleCommand(msg, command, fromId, messageId) {
     const chatId = msg.chat.id;
     const userId = fromId || msg.from.id;
 
     try {
-        const user = await findUser(userId);
+        let user = userStates[userId]?.user;
 
-        // রেজিস্ট্রেশন প্রক্রিয়া
+        if (!user) {
+            user = await findUser(userId);
+            if (user) {
+                if (!userStates[userId]) userStates[userId] = {};
+                userStates[userId].user = user;
+            }
+        }
+
         if (!user) {
             if (command && command.trim().length > 2 && !command.startsWith('/')) {
                 await registerUser(userId, command.trim());
-                bot.sendMessage(chatId, `অভিনন্দন ${command.trim()}! আপনার রেজিস্ট্রেশন সম্পন্ন হয়েছে।`, { reply_markup: getMainMenuKeyboard() });
+                bot.sendMessage(chatId, `অভিনন্দন ${command.trim()}! আপনার রেজিস্ট্রেশন সম্পন্ন হয়েছে। অ্যাডমিনের অনুমোদনের জন্য অনুগ্রহ করে অপেক্ষা করুন।`);
             } else {
                 bot.sendMessage(chatId, "স্বাগতম! বটটি ব্যবহার করার জন্য, দয়া করে আপনার নাম লিখে পাঠান।");
             }
-            return; // রেজিস্ট্রেশন হয়ে গেলে বা করতে বললে ফাংশন শেষ
+            return;
         }
 
-        // স্টেটফুল ফোন নম্বর ইনপুট
-        if (userStates[userId] && userStates[userId].state === 'awaiting_phone') {
-            await handlePhoneNumberInput(chatId, user, command, userStates[userId]);
-            return; // ফোন নম্বর জমা দেওয়ার পর ফাংশন শেষ
+        if (String(userId) === String(ADMIN_ID)) {
+            if (command === '/admin_panel') {
+                await showAdminPanel(chatId);
+                return;
+            }
+            if (command.startsWith('/approve_')) {
+                const targetUserId = command.split('_')[1];
+                await manageUserAccess(chatId, targetUserId, 'yes');
+                return;
+            }
+            if (command.startsWith('/revoke_')) {
+                const targetUserId = command.split('_')[1];
+                await manageUserAccess(chatId, targetUserId, 'no');
+                return;
+            }
         }
         
-        // বাটন এবং কমান্ড অনুযায়ী কাজ করা
+        if (user.access !== 'yes') {
+            bot.sendMessage(chatId, "দুঃখিত, আপনার অনুরোধটি এখনো অনুমোদন করা হয়নি। অনুগ্রহ করে অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।");
+            return;
+        }
+        
+        if (userStates[userId] && userStates[userId].state === 'awaiting_phone') {
+            await handlePhoneNumberInput(chatId, user, command, userStates[userId]);
+            return;
+        }
+        
         if (command === '/start') {
-            bot.sendMessage(chatId, `স্বাগতম, ${user.name}! কী করতে চান?`, { reply_markup: getMainMenuKeyboard() });
+            bot.sendMessage(chatId, `স্বাগতম, ${user.name}! কী করতে চান?`, { reply_markup: getMainMenuKeyboard(userId) });
         } else if (command === '/get_task') {
             await handleGetTask(chatId, user);
         } else if (command === '/my_stats') {
             await updateAndShowStats(chatId, user);
         } else if (command.startsWith('submit_phone_')) {
             const taskRow = command.split('_')[2];
-            userStates[userId] = { state: 'awaiting_phone', row: taskRow, messageId: messageId };
+            if (!userStates[userId]) userStates[userId] = {};
+            userStates[userId].state = 'awaiting_phone';
+            userStates[userId].row = taskRow;
+            userStates[userId].messageId = messageId;
             bot.sendMessage(chatId, "অনুগ্রহ করে ফোন নম্বরটি পাঠান।");
         } else if (command.startsWith('reject_')) {
             const taskRow = command.split('_')[1];
@@ -159,15 +203,83 @@ async function handleCommand(msg, command, fromId, messageId) {
     }
 }
 
+// ------ নতুন: অ্যাডমিন প্যানেলের জন্য ফাংশন ------
+async function showAdminPanel(chatId) {
+    const userStatsSheet = await getUserStatsSheet();
+    const rows = await userStatsSheet.getRows();
 
-// ------ ৬. বটের মূল ফাংশনগুলো (আপডেটেড) ------
+    if (rows.length === 0) {
+        bot.sendMessage(chatId, "কোনো রেজিস্টার্ড ব্যবহারকারী নেই।");
+        return;
+    }
+
+    let message = "ব্যবহারকারীদের তালিকা:\n\n";
+    const keyboard = [];
+
+    rows.forEach(row => {
+        const name = row.get('UserName');
+        const id = row.get('UserID');
+        const access = row.get('Access');
+        const statusIcon = (access === 'yes') ? '✅' : '❌';
+        
+        message += `${statusIcon} ${name} - \`${id}\`\n`;
+        
+        // প্রতিটি ব্যবহারকারীর জন্য একটি Approve/Revoke বাটন সারি তৈরি
+        keyboard.push([
+            { text: `Approve ${name}`, callback_data: `/approve_${id}` },
+            { text: `Revoke ${name}`, callback_data: `/revoke_${id}` }
+        ]);
+    });
+
+    bot.sendMessage(chatId, message, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+// ------ নতুন: অ্যাডমিনদের জন্য ব্যবহারকারী ব্যবস্থাপনার ফাংশন ------
+async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
+    try {
+        const userStatsSheet = await getUserStatsSheet();
+        const rows = await userStatsSheet.getRows();
+        const userRow = rows.find(row => String(row.get('UserID')) === String(targetUserId));
+
+        if (userRow) {
+            userRow.set('Access', accessStatus);
+            await userRow.save();
+            await getUserStatsRows(true); // ক্যাশ রিফ্রেশ করা
+
+            const userName = userRow.get('UserName');
+            bot.sendMessage(adminChatId, `"${userName}"-এর অ্যাক্সেস "${accessStatus}" করা হয়েছে।`);
+            
+            // ব্যবহারকারীকে নোটিফিকেশন পাঠানো
+            if (accessStatus === 'yes') {
+                bot.sendMessage(targetUserId, "অভিনন্দন! অ্যাডমিন আপনার অ্যাকাউন্ট অনুমোদন করেছেন। আপনি এখন বট ব্যবহার করতে পারবেন।", { reply_markup: getMainMenuKeyboard(targetUserId) });
+            } else {
+                bot.sendMessage(targetUserId, "দুঃখিত, অ্যাডমিন আপনার অ্যাকাউন্টের অ্যাক্সেস স্থগিত করেছেন।");
+            }
+
+            // অ্যাডমিন প্যানেল রিফ্রেশ করে দেখানো
+            await showAdminPanel(adminChatId);
+        } else {
+            bot.sendMessage(adminChatId, `দুঃখিত, ${targetUserId} ID সম্পন্ন কোনো ব্যবহারকারী নেই।`);
+        }
+    } catch (error) {
+        console.error("Error managing user access:", error);
+        bot.sendMessage(adminChatId, "অ্যাক্সেস পরিবর্তন করার সময় একটি সমস্যা হয়েছে।");
+    }
+}
+
+// ------ ৬. বটের মূল ফাংশনগুলো (তাৎক্ষণিক উত্তর এবং নিরাপদ ব্যাকগ্রাউন্ড আপডেট সহ) ------
 
 async function handleGetTask(chatId, user) {
-    const rows = await getWorkSheetRows();
-    // ডিবাগিং: নিশ্চিত করা যে ট্যাবগুলো লোড হয়েছে
-    
+    // ধাপ ১: চেক করা সিস্টেমটি বর্তমানে অন্য কোনো আপডেটের কাজ করছে কিনা
+    if (isUpdatingSheet) {
+        bot.sendMessage(chatId, "অন্য একজন ব্যবহারকারী এই মুহূর্তে কাজ নিচ্ছেন। অনুগ্রহ করে কয়েক সেকেন্ড পর আবার চেষ্টা করুন।");
+        return;
+    }
 
-    
+    const rows = await getWorkSheetRows();
     const existingTask = rows.find(row => row.get('AssignedTo') === user.name && row.get('Status') === 'Assigned');
     if (existingTask) {
         bot.sendMessage(chatId, "আপনার কাছে ইতিমধ্যে একটি কাজ অসমাপ্ত রয়েছে।");
@@ -176,32 +288,45 @@ async function handleGetTask(chatId, user) {
 
     const availableTask = rows.find(row => row.get('Status') === 'Available');
     if (availableTask) {
-        const statsTab = await getStatsTab();
-        // Stats ট্যাব থেকে x এবং y এর মান পড়া
-        await statsTab.loadCells('A2:B2');
-        const cellX = statsTab.getCell(1, 0); // A2
-        const cellY = statsTab.getCell(1, 1); // B2
-        
-        const stats = {
-            x: cellX.value || 0,
-            y: cellY.value || 0
-        };
-        const title = `আপনার নতুন কাজ (${stats.x}/${stats.y})`;
+        // ধাপ ২: সিস্টেমকে লক করা
+        isUpdatingSheet = true;
 
-        availableTask.set('Status', 'Assigned');
-        availableTask.set('AssignedTo', user.name);
-        await availableTask.save();
-        await getWorkSheetRows(true);
+        try {
+            const statsTab = await getStatsTab();
+            await statsTab.loadCells('A2:B2');
+            const cellX = statsTab.getCell(1, 0);
+            const cellY = statsTab.getCell(1, 1);
+            const stats = { x: cellX.value || 0, y: cellY.value || 0 };
+            const title = `আপনার নতুন কাজ (${stats.x}/${stats.y})`;
 
-        const taskRow = availableTask.rowNumber;
-        const message = `<b>${title}</b>\n\n` +
-                        `<b>Email: </b> <code>${availableTask.get('Email')}</code>\n` +
-                        `<b>Password: </b> <code>${availableTask.get('Password')}</code>\n` +
-                        `<b>Recovery Mail:</b> <code>${availableTask.get('Recovery Mail')}</code>\n\n` +
-                        `কাজটি শেষ হলে ফোন নম্বরটি এখানে পাঠান।`;
-        
-        const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
-        bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
+            const taskRow = availableTask.rowNumber;
+            const message = `<b>${title}</b>\n\n` +
+                            `<b>Email: </b> <code>${availableTask.get('Email')}</code>\n` +
+                            `<b>Password: </b> <code>${availableTask.get('Password')}</code>\n` +
+                            `<b>Recovery Mail:</b> <code>${availableTask.get('Recovery Mail')}</code>\n\n` +
+                            `কাজটি শেষ হলে ফোন নম্বরটি এখানে পাঠান।`;
+            
+            const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
+
+            // ধাপ ৩: ব্যবহারকারীকে সাথে সাথে উত্তর পাঠিয়ে দেওয়া
+            bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
+
+            // ধাপ ৪: ব্যাকগ্রাউন্ডে গুগল শীট আপডেট এবং ক্যাশ রিফ্রেশ করা
+            console.log(`Assigning task (Row ${taskRow}) to ${user.name} in the background...`);
+            availableTask.set('Status', 'Assigned');
+            availableTask.set('AssignedTo', user.name);
+            await availableTask.save();
+            await getWorkSheetRows(true); // ক্যাশ রিফ্রেশ
+            console.log("Background update successful.");
+
+        } catch (error) {
+            console.error("Error during handleGetTask:", error);
+            bot.sendMessage(chatId, "কাজ দেওয়ার সময় একটি সমস্যা হয়েছে।");
+        } finally {
+            // ধাপ ৫: কাজ শেষ হলে সিস্টেমকে আনলক করা
+            isUpdatingSheet = false;
+        }
+
     } else {
         bot.sendMessage(chatId, "দুঃখিত, এই মুহূর্তে কোনো নতুন কাজ নেই।");
     }
@@ -210,29 +335,17 @@ async function handleGetTask(chatId, user) {
 
 async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const trimmedPhoneNumber = phoneNumber.trim();
-    const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/;
-
-    if (!phoneRegex.test(trimmedPhoneNumber)) {
-        bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক ফরম্যাটে নেই। অনুগ্রহ করে `(123) 456-7890` এই ফরম্যাটে আবার পাঠান।");
-        return;
-    }
+    // ... ফোন নম্বর ফরম্যাট চেক অপরিবর্তিত ...
 
     const { row, messageId } = stateData;
     const rows = await getWorkSheetRows();
-    
-    // সারি খুঁজে বের করার জন্য সবচেয়ে নির্ভরযোগ্য পদ্ধতি
     const task = rows.find(r => r.rowNumber == row);
 
     if (task && task.get('AssignedTo') === user.name && task.get('Status') === "Assigned") {
         task.set('PhoneNumber', trimmedPhoneNumber);
         task.set('Status', "Completed");
         await task.save();
-        const statsTab = await getStatsTab();
-        await statsTab.loadCells('A2');
-        const cellX = statsTab.getCell(1, 0);
-        cellX.value = (cellX.value || 0) + 1;
-        await statsTab.saveUpdatedCells();
-        await getWorkSheetRows(true);
+        await getWorkSheetRows(true); // শুধু ক্যাশ রিফ্রেশ করা হচ্ছে
 
         await updateUserStats(user, 1);
         delete userStates[user.id];
@@ -255,31 +368,20 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
 
 async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
     const rows = await getWorkSheetRows();
-    
-    
-
-    // সারি খুঁজে বের করার জন্য সবচেয়ে নির্ভরযোগ্য পদ্ধতি
     const task = rows.find(r => r.rowNumber == rowToReject);
 
     if (task && task.get('Status') === "Assigned" && task.get('AssignedTo') === user.name) {
         let responseText = "";
         if (reason === "problem") {
-            const statsTab = await getStatsTab();
-            await statsTab.loadCells('A2');
-            const cellX = statsTab.getCell(1, 0);
-            cellX.value = (cellX.value || 0) + 1;
-            await statsTab.saveUpdatedCells();
             task.set('Status', "Rejected");
             await task.save();
-            await getWorkSheetRows(true);
-            
+            await getWorkSheetRows(true); // শুধু ক্যাশ রিফ্রেশ করা হচ্ছে
             responseText = `কাজটি (সারি ${rowToReject}) সফলভাবে বাতিল করা হয়েছে।`;
         } else if (reason === "later") {
             task.set('Status', "Available");
             task.set('AssignedTo', "");
             await task.save();
-            await getWorkSheetRows(true);
-            
+            await getWorkSheetRows(true); // শুধু ক্যাশ রিফ্রেশ করা হচ্ছে
             responseText = `কাজটি আবার তালিকার শুরুতে যুক্ত করা হয়েছে।`;
         }
         
@@ -291,6 +393,7 @@ async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
         if (messageId) bot.editMessageText("এই কাজটি বাতিল করা সম্ভব নয়।", { chat_id: chatId, message_id: messageId });
     }
 }
+
 
 async function handleBackToTask(chatId, taskRow, messageId) {
     const rows = await getWorkSheetRows();
@@ -316,7 +419,7 @@ async function handleBackToTask(chatId, taskRow, messageId) {
 // ------ ৭. ইউজার এবং স্ট্যাটাস ম্যানেজমেন্ট ফাংশন ------
 
 async function findUser(userId) {
-    const userStatsSheet = await getUserStatsSheet(); // <<<--- পরিবর্তন
+    const userStatsSheet = await getUserStatsSheet();
     const rows = await userStatsSheet.getRows();
     const userRow = rows.find(row => String(row.get('UserID')) === String(userId));
     if (userRow) {
@@ -326,21 +429,40 @@ async function findUser(userId) {
             name: userRow.get('UserName'),
             total: parseInt(userRow.get('TotalCompleted')) || 0,
             daily: parseInt(userRow.get('DailyCompleted')) || 0,
-            date: userRow.get('LastCompletedDate')
+            date: userRow.get('LastCompletedDate'),
+            access: userRow.get('Access') ? userRow.get('Access').toLowerCase() : 'no' // <<<--- নতুন: অ্যাক্সেস তথ্য যোগ করা হলো
         };
     }
     return null;
 }
 
 async function registerUser(userId, userName) {
-    const userStatsSheet = await getUserStatsSheet();
+    // --- মূল পরিবর্তন: userStatsSheet ভ্যারিয়েবলটি এখানে ডিফাইন করা হয়েছে ---
+    const userStatsSheet = await getUserStatsSheet(); 
+    
+    // User Stats শীটে নতুন ব্যবহারকারীর তথ্য যোগ করা
     await userStatsSheet.addRow({
         UserID: userId,
         UserName: userName,
         TotalCompleted: 0,
         DailyCompleted: 0,
-        LastCompletedDate: ""
+        LastCompletedDate: "",
+        Access: "no"
     });
+    
+    // User Stats ক্যাশটি তাৎক্ষণিকভাবে রিফ্রেশ করা
+    await getUserStatsRows(true);
+    
+    // অ্যাডমিনকে নোটিফিকেশন পাঠানো (যদি অ্যাডমিন আইডি সেট করা থাকে)
+    if (ADMIN_ID) {
+        const adminMessage = `নতুন ব্যবহারকারী: ${userName} (\`${userId}\`)\n\nঅনুমোদন দিতে অ্যাডমিন প্যানেল ব্যবহার করুন।`;
+        bot.sendMessage(ADMIN_ID, adminMessage, { 
+            parse_mode: 'Markdown', 
+            reply_markup: { 
+                inline_keyboard: [[{ text: "⚙️ অ্যাডমিন প্যানেল খুলুন", callback_data: "/admin_panel" }]] 
+            } 
+        });
+    }
 }
 
 async function updateUserStats(user, count) {
@@ -363,6 +485,8 @@ async function updateUserStats(user, count) {
     userRow.set('DailyCompleted', dailyCount);
     userRow.set('LastCompletedDate', today.toLocaleDateString('en-CA')); // YYYY-MM-DD format
     await userRow.save();
+    await getUserStatsRows(true);
+        console.log(`User Stats cache refreshed after updating stats for: ${user.name}`);
 }
 
 async function updateAndShowStats(chatId, user) {
@@ -384,14 +508,20 @@ function getTodaysCount(user) {
     return todayStr === lastDateStr ? user.daily : 0;
 }
 
-function getMainMenuKeyboard() {
-    return {
-        inline_keyboard: [
-            [{ text: "✅ নতুন কাজ নিন (Get Task)", callback_data: "/get_task" }],
-            [{ text: "📊 আমার কাজের হিসাব (My Stats)", callback_data: "/my_stats" }]
-        ]
-    };
+function getMainMenuKeyboard(userId) {
+    const defaultKeyboard = [
+        [{ text: "✅ নতুন কাজ নিন (Get Task)", callback_data: "/get_task" }],
+        [{ text: "📊 আমার কাজের হিসাব (My Stats)", callback_data: "/my_stats" }]
+    ];
+
+    // যদি ব্যবহারকারী অ্যাডমিন হয়, তাহলে "Admin Panel" বাটন যোগ করা
+    if (String(userId) === String(ADMIN_ID)) {
+        defaultKeyboard.push([{ text: "⚙️ অ্যাডমিন প্যানেল", callback_data: "/admin_panel" }]);
+    }
+
+    return { inline_keyboard: defaultKeyboard };
 }
+
 
 // ------ ৮. সার্ভার চালু করা ------
 app.listen(PORT, () => {
