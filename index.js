@@ -46,6 +46,8 @@ const CACHE_DURATION = 30 * 1000;
 // -----------------------------
 // ------ ৩. গুগল শীট কানেকশন এবং ক্যাশিং ------
 
+// ------ ৩. গুগল শীট কানেকশন এবং ক্যাশিং (সংশোধিত) ------
+
 // এই ফাংশনটি Work Sheet এর ডেটা ক্যাশ করবে এবং সেখান থেকে দেবে
 async function getWorkSheetRows(forceRefresh = false) {
     const now = Date.now();
@@ -55,14 +57,12 @@ async function getWorkSheetRows(forceRefresh = false) {
             const doc = new GoogleSpreadsheet(WORK_SHEET_ID, serviceAccountAuth);
             await doc.loadInfo();
             const sheet = doc.sheetsByTitle["Sheet1"];
-            const statsTab = doc.sheetsByTitle["Stats"]; // <<<--- Stats ট্যাবকেও এখানে ধরা হচ্ছে
+            const statsTab = doc.sheetsByTitle["Stats"];
 
             if (sheet && statsTab) {
-                // কাজের তালিকা ক্যাশ করা
                 await sheet.loadHeaderRow();
                 workSheetCache = await sheet.getRows();
                 
-                // পরিসংখ্যান ক্যাশ করা
                 await statsTab.loadCells('A2:B2');
                 const cellX = statsTab.getCell(1, 0);
                 const cellY = statsTab.getCell(1, 1);
@@ -70,11 +70,18 @@ async function getWorkSheetRows(forceRefresh = false) {
 
                 lastCacheTime = now;
                 console.log(`Cache updated: ${workSheetCache.length} tasks, Stats (x/y): ${statsCache.x}/${statsCache.y}`);
-            } else { // ... অপরিবর্তিত ... }
-        } catch (error) { // ... অপরিবর্তিত ... }
+            } else {
+                console.error("'Sheet1' or 'Stats' tab not found.");
+                return workSheetCache; // পুরনো ক্যাশ রিটার্ন করা
+            }
+        } catch (error) {
+            console.error("Error refreshing cache:", error);
+            return workSheetCache; // এরর হলে পুরনো ক্যাশ ব্যবহার করা
+        }
     }
     return workSheetCache;
 }
+
 
 // User Stats শীটের জন্য নতুন ক্যাশিং ফাংশন
 async function getUserStatsRows(forceRefresh = false) {
