@@ -308,10 +308,9 @@ async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     }
 }
 
-// ------ ৬. বটের মূল ফাংশনগুলো (তাৎক্ষণিক উত্তর এবং নিরাপদ ব্যাকগ্রাউন্ড আপডেট সহ) ------
+// ------ ৬. বটের মূল ফাংশনগুলো (চূড়ান্ত ভার্সন) ------
 
 async function handleGetTask(chatId, user) {
-    // ধাপ ১: চেক করা সিস্টেমটি বর্তমানে অন্য কোনো আপডেটের কাজ করছে কিনা
     if (isUpdatingSheet) {
         bot.sendMessage(chatId, "অন্য একজন ব্যবহারকারী এই মুহূর্তে কাজ নিচ্ছেন। অনুগ্রহ করে কয়েক সেকেন্ড পর আবার চেষ্টা করুন।");
         return;
@@ -326,16 +325,11 @@ async function handleGetTask(chatId, user) {
 
     const availableTask = rows.find(row => row.get('Status') === 'Available');
     if (availableTask) {
-        // ধাপ ২: সিস্টেমকে লক করা
         isUpdatingSheet = true;
 
         try {
-            const statsTab = await getStatsTab();
-            await statsTab.loadCells('A2:B2');
-            const cellX = statsTab.getCell(1, 0);
-            const cellY = statsTab.getCell(1, 1);
-            const stats = { x: cellX.value || 0, y: cellY.value || 0 };
-            const title = `আপনার নতুন কাজ (${stats.x}/${stats.y})`;
+            // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা statsCache ভ্যারিয়েবল থেকে মান নেওয়া হচ্ছে ---
+            const title = `আপনার নতুন কাজ (${statsCache.x}/${statsCache.y})`;
 
             const taskRow = availableTask.rowNumber;
             const message = `<b>${title}</b>\n\n` +
@@ -346,22 +340,19 @@ async function handleGetTask(chatId, user) {
             
             const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
 
-            // ধাপ ৩: ব্যবহারকারীকে সাথে সাথে উত্তর পাঠিয়ে দেওয়া
             bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
 
-            // ধাপ ৪: ব্যাকগ্রাউন্ডে গুগল শীট আপডেট এবং ক্যাশ রিফ্রেশ করা
             console.log(`Assigning task (Row ${taskRow}) to ${user.name} in the background...`);
             availableTask.set('Status', 'Assigned');
             availableTask.set('AssignedTo', user.name);
             await availableTask.save();
-            await getWorkSheetRows(true); // ক্যাশ রিফ্রেশ
+            await getWorkSheetRows(true);
             console.log("Background update successful.");
 
         } catch (error) {
             console.error("Error during handleGetTask:", error);
             bot.sendMessage(chatId, "কাজ দেওয়ার সময় একটি সমস্যা হয়েছে।");
         } finally {
-            // ধাপ ৫: কাজ শেষ হলে সিস্টেমকে আনলক করা
             isUpdatingSheet = false;
         }
 
