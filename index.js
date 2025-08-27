@@ -104,6 +104,14 @@ async function getUserStatsRows(forceRefresh = false) {
     return userStatsCache;
 }
 
+// User Stats শীটের মূল অবজেক্ট পাওয়ার জন্য Helper ফাংশন
+async function getUserStatsSheet() {
+    const doc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
+    await doc.loadInfo();
+    const sheet = doc.sheetsByIndex[0];
+    await sheet.loadHeaderRow();
+    return sheet;
+}
 
 // ------ ৪. Webhook এবং টেলিগ্রাম ইনপুট হ্যান্ডেল করা ------
 app.post(`/bot${TOKEN}`, (req, res) => {
@@ -144,6 +152,25 @@ async function handleCommand(msg, command, fromId, messageId) {
             }
             return; // নতুন ব্যবহারকারীর জন্য ফাংশনের কাজ এখানেই শেষ
         }
+
+        // ... handleCommand ফাংশনের ভেতরে, অ্যাডমিন কমান্ড ব্লকে ...
+        if (String(userId) === String(ADMIN_ID)) {
+            // ... /admin_panel, /approve_, /revoke_ কমান্ডগুলো ...
+
+            // --- নতুন: ক্যাশ ক্লিয়ার করার জন্য অ্যাডমিন কমান্ড ---
+            if (command === '/clearcache') {
+                // সব ক্যাশ রিসেট করা হচ্ছে
+                workSheetCache = [];
+                userStatsCache = [];
+                Object.keys(userStates).forEach(key => delete userStates[key]); // সব ইউজার সেশন ডিলিট করা
+                lastCacheTime = 0;
+                lastStatsCacheTime = 0;
+                console.log("All caches cleared by admin command.");
+                bot.sendMessage(chatId, "✅ সব ক্যাশ সফলভাবে পরিষ্কার করা হয়েছে।");
+                return;
+            }
+        }
+
 
         // ধাপ ৩: অ্যাডমিন কমান্ডগুলো সবার আগে চেক করা
         if (String(userId) === String(ADMIN_ID)) {
