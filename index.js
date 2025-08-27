@@ -241,10 +241,10 @@ async function handleCommand(msg, command, fromId, messageId) {
     }
 }
 
-// ------ নতুন: অ্যাডমিন প্যানেলের জন্য ফাংশন ------
+// ------ নতুন: অ্যাডমিন প্যানেলের জন্য ফাংশন (সংশোধিত) ------
 async function showAdminPanel(chatId) {
-    const userStatsSheet = await getUserStatsRows();
-    const rows = await userStatsSheet.getRows();
+    // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা ব্যবহারকারীদের তালিকা (Array) নেওয়া হচ্ছে ---
+    const rows = await getUserStatsRows();
 
     if (rows.length === 0) {
         bot.sendMessage(chatId, "কোনো রেজিস্টার্ড ব্যবহারকারী নেই।");
@@ -262,7 +262,6 @@ async function showAdminPanel(chatId) {
         
         message += `${statusIcon} ${name} - \`${id}\`\n`;
         
-        // প্রতিটি ব্যবহারকারীর জন্য একটি Approve/Revoke বাটন সারি তৈরি
         keyboard.push([
             { text: `Approve ${name}`, callback_data: `/approve_${id}` },
             { text: `Revoke ${name}`, callback_data: `/revoke_${id}` }
