@@ -117,15 +117,14 @@ bot.on('callback_query', (callbackQuery) => {
     handleCommand(callbackQuery.message, callbackQuery.data, callbackQuery.from.id, callbackQuery.message.message_id);
 });
 
-// ------ ৫. মূল কমান্ড হ্যান্ডেলার (সেশন এবং ডুয়াল ক্যাশিং সহ সর্বোচ্চ গতির জন্য) ------
-// ------ ৫. মূল কমান্ড হ্যান্ডেলার (চূড়ান্ত সঠিক ভার্সন) ------
+// ------ ৫. মূল কমান্ড হ্যান্ডেলার (চূড়ান্ত পুনর্গঠিত এবং নির্ভুল ভার্সন) ------
 async function handleCommand(msg, command, fromId, messageId) {
     const chatId = msg.chat.id;
     const userId = fromId || msg.from.id;
 
     try {
+        // ধাপ ১: ব্যবহারকারীকে খোঁজা (সেশন এবং ক্যাশ থেকে)
         let user = userStates[userId]?.user;
-
         if (!user) {
             user = await findUser(userId);
             if (user) {
@@ -134,16 +133,19 @@ async function handleCommand(msg, command, fromId, messageId) {
             }
         }
 
+        // ধাপ ২: নতুন ব্যবহারকারী রেজিস্ট্রেশন এবং অ্যাডমিন নোটিফিকেশন
         if (!user) {
             if (command && command.trim().length > 2 && !command.startsWith('/')) {
                 await registerUser(userId, command.trim());
+                // রেজিস্ট্রেশনের পর ব্যবহারকারীকে একটি স্বাগত বার্তা দেওয়া
                 bot.sendMessage(chatId, `অভিনন্দন ${command.trim()}! আপনার রেজিস্ট্রেশন সম্পন্ন হয়েছে। অ্যাডমিনের অনুমোদনের জন্য অনুগ্রহ করে অপেক্ষা করুন।`);
             } else {
                 bot.sendMessage(chatId, "স্বাগতম! বটটি ব্যবহার করার জন্য, দয়া করে আপনার নাম লিখে পাঠান।");
             }
-            return;
+            return; // নতুন ব্যবহারকারীর জন্য ফাংশনের কাজ এখানেই শেষ
         }
 
+        // ধাপ ৩: অ্যাডমিন কমান্ডগুলো সবার আগে চেক করা
         if (String(userId) === String(ADMIN_ID)) {
             if (command === '/admin_panel') {
                 await showAdminPanel(chatId);
@@ -161,11 +163,13 @@ async function handleCommand(msg, command, fromId, messageId) {
             }
         }
         
+        // ধাপ ৪: সাধারণ ব্যবহারকারীদের জন্য অ্যাক্সেস কন্ট্রোল চেক
         if (user.access !== 'yes') {
-            bot.sendMessage(chatId, "দুঃখিত, আপনার অনুরোধটি এখনো অনুমোদন করা হয়নি। অনুগ্রহ করে অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।");
+            bot.sendMessage(chatId, "দুঃখিত, আপনাকে এখনো অনুমোদন করা হয়নি। অনুগ্রহ করে অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।");
             return;
         }
         
+        // ধাপ ৫: রেজিস্টার্ড এবং অনুমোদিত ব্যবহারকারীদের জন্য বাকি কাজ
         if (userStates[userId] && userStates[userId].state === 'awaiting_phone') {
             await handlePhoneNumberInput(chatId, user, command, userStates[userId]);
             return;
