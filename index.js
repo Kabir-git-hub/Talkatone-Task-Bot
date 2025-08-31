@@ -1,8 +1,3 @@
-// ======================================================================
-//          চূড়ান্ত এবং অপটিমাইজড কোড (শুধুমাত্র বটের কাজের জন্য)
-// ======================================================================
-
-// ------ ১. লাইব্রেরি এবং কনফিগারেশন ------
 require('dotenv').config();
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
@@ -10,23 +5,23 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 const creds = require('./credentials.json');
 
-// .env ফাইল থেকে ভ্যারিয়েবল লোড করা
+
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WORK_SHEET_ID = process.env.WORK_SHEET_ID;
 const STATS_SHEET_ID = process.env.STATS_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 const SERVER_URL = process.env.SERVER_URL;
 const ADMIN_ID = process.env.ADMIN_USER_ID; 
-const WORK_SHEET_NAME = "Sheet1"; // অথবা আপনার কাজের শীটের ট্যাবের যে নাম
+const WORK_SHEET_NAME = "Sheet1"; 
 
-// ------ ২. সার্ভিস এবং বট চালু করা ------
+
 const app = express();
 app.use(express.json());
 const bot = new TelegramBot(TOKEN);
 const webhookUrl = `${SERVER_URL}/bot${TOKEN}`;
 bot.setWebHook(webhookUrl);
 
-// গুগল শীট অথেন্টিকেশন
+
 const serviceAccountAuth = new JWT({
     email: creds.client_email,
     key: creds.private_key.replace(/\\n/g, '\n'),
@@ -34,7 +29,7 @@ const serviceAccountAuth = new JWT({
 });
 
 
-// --- ক্যাশিং এর জন্য ভ্যারিয়েবল ---
+
 const userStates = {};
 let workSheetCache = [];
 let lastCacheTime = 0;
@@ -43,12 +38,11 @@ let lastStatsCacheTime = 0;
 let statsCache = { x: 0, y: 0 };
 let isUpdatingSheet = false;
 const CACHE_DURATION = 30 * 1000;
-// -----------------------------
-// ------ ৩. গুগল শীট কানেকশন এবং ক্যাশিং ------
 
-// ------ ৩. গুগল শীট কানেকশন এবং ক্যাশিং (সংশোধিত) ------
 
-// এই ফাংশনটি Work Sheet এর ডেটা ক্যাশ করবে এবং সেখান থেকে দেবে
+
+
+
 async function getWorkSheetRows(forceRefresh = false) {
     const now = Date.now();
     if (forceRefresh || (now - lastCacheTime > CACHE_DURATION) || workSheetCache.length === 0) {
@@ -72,18 +66,18 @@ async function getWorkSheetRows(forceRefresh = false) {
                 console.log(`Cache updated: ${workSheetCache.length} tasks, Stats (x/y): ${statsCache.x}/${statsCache.y}`);
             } else {
                 console.error("'Sheet1' or 'Stats' tab not found.");
-                return workSheetCache; // পুরনো ক্যাশ রিটার্ন করা
+                return workSheetCache; 
             }
         } catch (error) {
             console.error("Error refreshing cache:", error);
-            return workSheetCache; // এরর হলে পুরনো ক্যাশ ব্যবহার করা
+            return workSheetCache; 
         }
     }
     return workSheetCache;
 }
 
 
-// User Stats শীটের জন্য নতুন ক্যাশিং ফাংশন
+
 async function getUserStatsRows(forceRefresh = false) {
     const now = Date.now();
     if (forceRefresh || (now - lastStatsCacheTime > CACHE_DURATION) || userStatsCache.length === 0) {
@@ -104,7 +98,7 @@ async function getUserStatsRows(forceRefresh = false) {
     return userStatsCache;
 }
 
-// User Stats শীটের মূল অবজেক্ট পাওয়ার জন্য Helper ফাংশন
+
 async function getUserStatsSheet() {
     const doc = new GoogleSpreadsheet(STATS_SHEET_ID, serviceAccountAuth);
     await doc.loadInfo();
@@ -113,7 +107,7 @@ async function getUserStatsSheet() {
     return sheet;
 }
 
-// ------ ৪. Webhook এবং টেলিগ্রাম ইনপুট হ্যান্ডেল করা ------
+
 app.post(`/bot${TOKEN}`, (req, res) => {
     bot.processUpdate(req.body);
     res.sendStatus(200);
@@ -125,13 +119,13 @@ bot.on('callback_query', (callbackQuery) => {
     handleCommand(callbackQuery.message, callbackQuery.data, callbackQuery.from.id, callbackQuery.message.message_id);
 });
 
-// ------ ৫. মূল কমান্ড হ্যান্ডেলার (চূড়ান্ত পুনর্গঠিত এবং নির্ভুল ভার্সন) ------
+
 async function handleCommand(msg, command, fromId, messageId) {
     const chatId = msg.chat.id;
     const userId = fromId || msg.from.id;
 
     try {
-        // ধাপ ১: ব্যবহারকারীকে খোঁজা (সেশন এবং ক্যাশ থেকে)
+        
         let user = userStates[userId]?.user;
         if (!user) {
             user = await findUser(userId);
@@ -141,25 +135,25 @@ async function handleCommand(msg, command, fromId, messageId) {
             }
         }
 
-        // ধাপ ২: নতুন ব্যবহারকারী রেজিস্ট্রেশন এবং অ্যাডমিন নোটিফিকেশন
+
         if (!user) {
             if (command && command.trim().length > 2 && !command.startsWith('/')) {
                 await registerUser(userId, command.trim());
-                // রেজিস্ট্রেশনের পর ব্যবহারকারীকে একটি স্বাগত বার্তা দেওয়া
+                
                 bot.sendMessage(chatId, `অভিনন্দন ${command.trim()}! আপনার রেজিস্ট্রেশন সম্পন্ন হয়েছে। অ্যাডমিনের অনুমোদনের জন্য অনুগ্রহ করে অপেক্ষা করুন।`);
             } else {
                 bot.sendMessage(chatId, "স্বাগতম! বটটি ব্যবহার করার জন্য, দয়া করে আপনার নাম লিখে পাঠান।");
             }
-            return; // নতুন ব্যবহারকারীর জন্য ফাংশনের কাজ এখানেই শেষ
+            return; 
         }
 
-        // ... handleCommand ফাংশনের ভেতরে, অ্যাডমিন কমান্ড ব্লকে ...
+        
         if (String(userId) === String(ADMIN_ID)) {
-            // ... /admin_panel, /approve_, /revoke_ কমান্ডগুলো ...
+           
 
-            // --- নতুন: ক্যাশ ক্লিয়ার করার জন্য অ্যাডমিন কমান্ড ---
+            
             if (command === '/clearcache') {
-                // সব ক্যাশ রিসেট করা হচ্ছে
+               
                 workSheetCache = [];
                 userStatsCache = [];
                 Object.keys(userStates).forEach(key => delete userStates[key]); // সব ইউজার সেশন ডিলিট করা
@@ -172,7 +166,7 @@ async function handleCommand(msg, command, fromId, messageId) {
         }
 
 
-        // ধাপ ৩: অ্যাডমিন কমান্ডগুলো সবার আগে চেক করা
+        
         if (String(userId) === String(ADMIN_ID)) {
             if (command === '/admin_panel') {
                 await showAdminPanel(chatId);
@@ -190,13 +184,13 @@ async function handleCommand(msg, command, fromId, messageId) {
             }
         }
         
-        // ধাপ ৪: সাধারণ ব্যবহারকারীদের জন্য অ্যাক্সেস কন্ট্রোল চেক
+        
         if (user.access !== 'yes') {
             bot.sendMessage(chatId, "দুঃখিত, আপনাকে এখনো অনুমোদন করা হয়নি। অনুগ্রহ করে অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।");
             return;
         }
         
-        // ধাপ ৫: রেজিস্টার্ড এবং অনুমোদিত ব্যবহারকারীদের জন্য বাকি কাজ
+        
         if (userStates[userId] && userStates[userId].state === 'awaiting_phone') {
             await handlePhoneNumberInput(chatId, user, command, userStates[userId]);
             return;
@@ -241,9 +235,9 @@ async function handleCommand(msg, command, fromId, messageId) {
     }
 }
 
-// ------ নতুন: অ্যাডমিন প্যানেলের জন্য ফাংশন (সংশোধিত) ------
+
 async function showAdminPanel(chatId) {
-    // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা ব্যবহারকারীদের তালিকা (Array) নেওয়া হচ্ছে ---
+    
     const rows = await getUserStatsRows();
 
     if (rows.length === 0) {
@@ -274,7 +268,7 @@ async function showAdminPanel(chatId) {
     });
 }
 
-// ------ নতুন: অ্যাডমিনদের জন্য ব্যবহারকারী ব্যবস্থাপনার ফাংশন (চূড়ান্ত ভার্সন) ------
+
 async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     try {
         const rows = await getUserStatsRows();
@@ -283,14 +277,14 @@ async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
         if (userRow) {
             userRow.set('Access', accessStatus);
             await userRow.save();
-            await getUserStatsRows(true); // মূল ডেটা ক্যাশ রিফ্রেশ করা
+            await getUserStatsRows(true); 
 
-            // --- মূল পরিবর্তন: ব্যবহারকারীর সেশন ক্যাশ আপডেট করা ---
+           
             if (userStates[targetUserId] && userStates[targetUserId].user) {
                 userStates[targetUserId].user.access = accessStatus;
                 console.log(`Session cache updated for user ${targetUserId}. New access: ${accessStatus}`);
             }
-            // ----------------------------------------------------
+            
 
             const userName = userRow.get('UserName');
             bot.sendMessage(adminChatId, `"${userName}"-এর অ্যাক্সেস "${accessStatus}" করা হয়েছে।`);
@@ -311,7 +305,7 @@ async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     }
 }
 
-// ------ ৬. বটের মূল ফাংশনগুলো (চূড়ান্ত ভার্সন) ------
+
 
 async function handleGetTask(chatId, user) {
     if (isUpdatingSheet) {
@@ -331,7 +325,7 @@ async function handleGetTask(chatId, user) {
         isUpdatingSheet = true;
 
         try {
-            // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা statsCache ভ্যারিয়েবল থেকে মান নেওয়া হচ্ছে ---
+           
             const title = `আপনার নতুন কাজ (${statsCache.x}/${statsCache.y})`;
 
             const taskRow = availableTask.rowNumber;
@@ -365,17 +359,17 @@ async function handleGetTask(chatId, user) {
 }
 
 
-// ------ ৬. বটের মূল ফাংশনগুলো (সংশোধিত) ------
+
 
 async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
     const trimmedPhoneNumber = phoneNumber.trim();
     
-    // --- মূল পরিবর্তন: ফোন নম্বর ফরম্যাট যাচাইকরণ আবার সঠিকভাবে চালু করা হলো ---
-    const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; // ফরম্যাট: (123) 456-7890
+   
+    const phoneRegex = /^\(\d{3}\)\s\d{3}-\d{4}$/; 
 
     if (!phoneRegex.test(trimmedPhoneNumber)) {
         bot.sendMessage(chatId, "দুঃখিত, ফোন নম্বরটি সঠিক নই। অনুগ্রহ করে সঠিক নম্বরটি আবার পাঠান...।");
-        return; // যদি ফরম্যাট না মেলে, তাহলে ফাংশনটি এখানেই শেষ হয়ে যাবে
+        return; 
     }
     // --------------------------------------------------------------------
 
@@ -391,7 +385,7 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         
         await updateUserStats(user, 1);
         
-        // স্টেট পরিষ্কার করা
+      
         delete userStates[user.id];
         
         const taskDetails = `<b>কাজটি সম্পন্ন হয়েছে (সারি ${row}):</b>\n\n`+
@@ -405,7 +399,7 @@ async function handlePhoneNumberInput(chatId, user, phoneNumber, stateData) {
         }
         bot.sendMessage(chatId, `✅ ধন্যবাদ! কাজটি সফলভাবে জমা হয়েছে।`, { reply_markup: getMainMenuKeyboard(user.id) });
     } else {
-        // যদি কোনো কারণে কাজ খুঁজে না পাওয়া যায়, তাহলেও স্টেট পরিষ্কার করা
+        
         delete userStates[user.id];
         bot.sendMessage(chatId, "দুঃখিত, এই কাজটি জমা দেওয়ার সময় একটি সমস্যা হয়েছে।", { reply_markup: getMainMenuKeyboard(user.id) });
     }
@@ -420,13 +414,13 @@ async function handleRejectTask(chatId, user, rowToReject, reason, messageId) {
         if (reason === "problem") {
             task.set('Status', "Rejected");
             await task.save();
-            await getWorkSheetRows(true); // শুধু ক্যাশ রিফ্রেশ করা হচ্ছে
+            await getWorkSheetRows(true); 
             responseText = `কাজটি (সারি ${rowToReject}) সফলভাবে বাতিল করা হয়েছে।`;
         } else if (reason === "later") {
             task.set('Status', "Available");
             task.set('AssignedTo', "");
             await task.save();
-            await getWorkSheetRows(true); // শুধু ক্যাশ রিফ্রেশ করা হচ্ছে
+            await getWorkSheetRows(true); 
             responseText = `কাজটি আবার তালিকার শুরুতে যুক্ত করা হয়েছে।`;
         }
         
@@ -461,10 +455,10 @@ async function handleBackToTask(chatId, taskRow, messageId) {
     }
 }
 
-// ------ ৭. ইউজার এবং স্ট্যাটাস ম্যানেজমেন্ট ফাংশন ------
+
 
 async function findUser(userId) {
-    const rows = await getUserStatsRows(); // <<<--- সরাসরি ক্যাশিং ফাংশন কল করা হচ্ছে
+    const rows = await getUserStatsRows(); 
     const userRow = rows.find(row => String(row.get('UserID')) === String(userId));
     if (userRow) {
         return {
@@ -481,7 +475,7 @@ async function findUser(userId) {
 }
 
 async function registerUser(userId, userName) {
-    const userStatsSheet = await getUserStatsSheet(); // <<<--- মূল শীট অবজেক্ট পাওয়া
+    const userStatsSheet = await getUserStatsSheet(); 
     
     await userStatsSheet.addRow({
         UserID: userId,
@@ -492,7 +486,7 @@ async function registerUser(userId, userName) {
         Access: "no"
     });
     
-    await getUserStatsRows(true); // ক্যাশ রিফ্রেশ করা
+    await getUserStatsRows(true); 
     
     if (ADMIN_ID) {
         const adminMessage = `নতুন ব্যবহারকারী: ${userName} (\`${userId}\`)\n\nঅনুমোদন দিতে অ্যাডমিন প্যানেল ব্যবহার করুন।`;
@@ -505,9 +499,9 @@ async function registerUser(userId, userName) {
     }
 }
 
-// ------ ৭. ইউজার এবং স্ট্যাটাস ম্যানেজমেন্ট ফাংশন (সংশোধিত) ------
+
 async function updateUserStats(user, count) {
-    // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা ব্যবহারকারীদের তালিকা (Array) নেওয়া হচ্ছে ---
+    
     const rows = await getUserStatsRows();
     
     const userRow = rows.find(r => r.rowNumber == user.row);
@@ -558,7 +552,7 @@ function getMainMenuKeyboard(userId) {
         [{ text: "📊 আমার কাজের হিসাব (My Stats)", callback_data: "/my_stats" }]
     ];
 
-    // যদি ব্যবহারকারী অ্যাডমিন হয়, তাহলে "Admin Panel" বাটন যোগ করা
+   
     if (String(userId) === String(ADMIN_ID)) {
         defaultKeyboard.push([{ text: "⚙️ অ্যাডমিন প্যানেল", callback_data: "/admin_panel" }]);
     }
