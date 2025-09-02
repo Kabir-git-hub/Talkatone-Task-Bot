@@ -208,7 +208,10 @@ async function handleCommand(msg, command, fromId, messageId) {
             await handleGetTask(chatId, user);
         } else if (command === '/my_stats') {
             await updateAndShowStats(chatId, user);
-        } else if (command.startsWith('submit_phone_')) {
+        }  else if (command.startsWith('/select_task_')) {
+            const taskRow = command.split('_')[2];
+            await handleSelectTask(chatId, user, taskRow);
+        }  else if (command.startsWith('submit_phone_')) {
             const taskRow = command.split('_')[2];
             if (!userStates[userId]) userStates[userId] = {};
             userStates[userId].state = 'awaiting_phone';
@@ -240,6 +243,8 @@ async function handleCommand(msg, command, fromId, messageId) {
         bot.sendMessage(chatId, "একটি মারাত্মক সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
     }
 }
+
+
 
 // ------ নতুন: অ্যাডমিন প্যানেলের জন্য ফাংশন (সংশোধিত) ------
 async function showAdminPanel(chatId) {
@@ -311,14 +316,16 @@ async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     }
 }
 
-// ------ ৬. বটের মূল ফাংশনগুলো (চূড়ান্ত ভার্সন) ------
+// ------ ৬. বটের মূল ফাংশনগুলো (কাজ বেছে নেওয়ার ফিচার সহ) ------
 
 async function handleGetTask(chatId, user) {
+    // লক চেক করা (আগের মতোই)
     if (isUpdatingSheet) {
-        bot.sendMessage(chatId, "অন্য একজন ব্যবহারকারী এই মুহূর্তে কাজ নিচ্ছেন। অনুগ্রহ করে কয়েক সেকেন্ড পর আবার চেষ্টা করুন।");
+        bot.sendMessage(chatId, "অন্য ব্যবহারকারী কাজ নিচ্ছেন। অনুগ্রহ করে কয়েক সেকেন্ড পর আবার চেষ্টা করুন।");
         return;
     }
-
+    
+    // ক্যাশ থেকে সব কাজ নেওয়া
     const rows = await getWorkSheetRows();
     const existingTask = rows.find(row => row.get('AssignedTo') === user.name && row.get('Status') === 'Assigned');
     if (existingTask) {
@@ -326,41 +333,76 @@ async function handleGetTask(chatId, user) {
         return;
     }
 
-    const availableTask = rows.find(row => row.get('Status') === 'Available');
-    if (availableTask) {
-        isUpdatingSheet = true;
+    // --- মূল পরিবর্তন: সবগুলো "Available" কাজ খুঁজে বের করা ---
+    const availableTasks = rows.filter(row => row.get('Status') === 'Available');
 
-        try {
-            // --- মূল পরিবর্তন: সরাসরি ক্যাশ করা statsCache ভ্যারিয়েবল থেকে মান নেওয়া হচ্ছে ---
-            const title = `আপনার নতুন কাজ (${statsCache.x}/${statsCache.y})`;
+    if (availableTasks.length === 0) {
+        bot.sendMessage(chatId, "দুঃখিত, এই মুহূর্তে কোনো নতুন কাজ নেই।");
+        return;
+    }
 
-            const taskRow = availableTask.rowNumber;
+    // প্রতিটি কাজের জন্য একটি করে বাটন তৈরি করা
+    const keyboard = availableTasks.map(task => {
+        // ইমেইলের @-এর আগের অংশটুকু বাটনে দেখানো হবে
+        const emailPrefix = task.get('Email').split('@')[0];
+        return [{ text: `📧 ${emailPrefix}`, callback_data: `/select_task_${task.rowNumber}` }];
+    });
+
+    // (ঐচ্ছিক) যদি ২০টির বেশি কাজ থাকে, তাহলে পৃষ্ঠা আকারে দেখানো যেতে পারে
+    // আপাতত আমরা প্রথম ২০টি কাজ দেখাবো
+    const tasksToShow = keyboard.slice(0, 20);
+
+    const message = `✅ মোট ${availableTasks.length}টি কাজ রয়েছে। অনুগ্রহ করে আপনার পছন্দের কাজটি বেছে নিন:`;
+    bot.sendMessage(chatId, message, {
+        reply_markup: { inline_keyboard: tasksToShow }
+    });
+}
+
+// ------ নতুন: ব্যবহারকারীর বেছে নেওয়া কাজ অ্যাসাইন করার ফাংশন ------
+async function handleSelectTask(chatId, user, taskRow) {
+    if (isUpdatingSheet) {
+        bot.sendMessage(chatId, "সিস্টেমটি এই মুহূর্তে ব্যস্ত আছে। অনুগ্রহ করে কয়েক সেকেন্ড পর আবার চেষ্টা করুন।");
+        return;
+    }
+
+    isUpdatingSheet = true; // সিস্টেম লক করা
+
+    try {
+        const rows = await getWorkSheetRows(true); // সবচেয়ে আপ-টু-ডেট ডেটা নেওয়া
+        const task = rows.find(r => r.rowNumber == taskRow);
+
+        // ডাবল চেক: কাজটি কি এখনো অ্যাভেইলেবল আছে?
+        if (task && task.get('Status') === 'Available') {
+            const stats = statsCache; // ক্যাশ থেকে সরাসরি নেওয়া
+            const title = `আপনার নতুন কাজ (${stats.x}/${stats.y})`;
+
+            // কাজ অ্যাসাইন করা
+            task.set('Status', 'Assigned');
+            task.set('AssignedTo', user.name);
+            await task.save();
+            await getWorkSheetRows(true); // ক্যাশ রিফ্রেশ করা
+
             const message = `<b>${title}</b>\n\n` +
-                            `<b>Email: </b> <code>${availableTask.get('Email')}</code>\n` +
-                            `<b>Password: </b> <code>${availableTask.get('Password')}</code>\n` +
-                            `<b>Recovery Mail:</b> <code>${availableTask.get('Recovery Mail')}</code>\n\n` +
+                            `<b>Email: </b> <code>${task.get('Email')}</code>\n` +
+                            `<b>Password: </b> <code>${task.get('Password')}</code>\n` +
+                            `<b>Recovery Mail:</b> <code>${task.get('Recovery Mail')}</code>\n\n` +
                             `কাজটি শেষ হলে ফোন নম্বরটি এখানে পাঠান।`;
             
             const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
-
+            bot.sendMessage(chatId, "আপনাকে কাজটি সফলভাবে অ্যাসাইন করা হয়েছে:");
             bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
 
-            console.log(`Assigning task (Row ${taskRow}) to ${user.name} in the background...`);
-            availableTask.set('Status', 'Assigned');
-            availableTask.set('AssignedTo', user.name);
-            await availableTask.save();
-            await getWorkSheetRows(true);
-            console.log("Background update successful.");
-
-        } catch (error) {
-            console.error("Error during handleGetTask:", error);
-            bot.sendMessage(chatId, "কাজ দেওয়ার সময় একটি সমস্যা হয়েছে।");
-        } finally {
-            isUpdatingSheet = false;
+        } else {
+            // যদি অন্য কেউ এই কাজটি নিয়ে নেয়
+            bot.sendMessage(chatId, "দুঃখিত, এই কাজটি ইতিমধ্যে অন্য কেউ নিয়ে নিয়েছে। অনুগ্রহ করে তালিকা থেকে অন্য একটি কাজ বেছে নিন।");
+            await handleGetTask(chatId, user); // ব্যবহারকারীকে আবার কাজের তালিকা দেখানো
         }
 
-    } else {
-        bot.sendMessage(chatId, "দুঃখিত, এই মুহূর্তে কোনো নতুন কাজ নেই।");
+    } catch (error) {
+        console.error("Error during task selection:", error);
+        bot.sendMessage(chatId, "কাজটি অ্যাসাইন করার সময় একটি সমস্যা হয়েছে।");
+    } finally {
+        isUpdatingSheet = false; // সিস্টেম আনলক করা
     }
 }
 
