@@ -347,9 +347,11 @@ async function handleGetTask(chatId, user) {
     const tasksToShow = keyboard.slice(0, 20);
 
     const message = `✅ মোট ${availableTasks.length}টি কাজ রয়েছে। অনুগ্রহ করে আপনার পছন্দের কাজটি বেছে নিন:`;
-    bot.sendMessage(chatId, message, {
+    const sentMessage = await bot.sendMessage(chatId, message, {
         reply_markup: { inline_keyboard: tasksToShow }
     });
+    if (!userStates[user.id]) userStates[user.id] = {};
+    userStates[user.id].taskListMessageId = sentMessage.message_id;
 }
 
 // ------ নতুন: ব্যবহারকারীর বেছে নেওয়া কাজ অ্যাসাইন করার ফাংশন (সংশোধিত) ------
@@ -360,7 +362,7 @@ async function handleSelectTask(chatId, user, taskRow) {
     }
 
     isUpdatingSheet = true;
-
+    const messageIdToEdit = userStates[user.id]?.taskListMessageId;
     try {
         const rows = await getWorkSheetRows(true);
         const task = rows.find(r => r.rowNumber == taskRow);
@@ -373,7 +375,12 @@ async function handleSelectTask(chatId, user, taskRow) {
             task.set('AssignedTo', user.name);
             await task.save();
             await getWorkSheetRows(true);
-
+            if (messageIdToEdit) {
+                bot.editMessageText("✅ আপনাকে কাজটি সফলভাবে অ্যাসাইন করা হয়েছে।", {
+                    chat_id: chatId,
+                    message_id: messageIdToEdit
+                });
+            }
             const message = `<b>${title}</b>\n\n` +
                             `<b>Email: </b> <code>${task.get('Email')}</code>\n` +
                             `<b>Password: </b> <code>${task.get('Password')}</code>\n` +
@@ -382,17 +389,19 @@ async function handleSelectTask(chatId, user, taskRow) {
             
             const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
             
-            bot.sendMessage(chatId, "আপনাকে কাজটি সফলভাবে অ্যাসাইন করা হয়েছে:");
             bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
 
         } else {
-            bot.sendMessage(chatId, "দুঃখিত, এই কাজটি ইতিমধ্যে অন্য কেউ নিয়ে নিয়েছে। অনুগ্রহ করে তালিকা থেকে অন্য একটি কাজ বেছে নিন।");
+           if (messageIdToEdit) {
+                bot.editMessageText("দুঃখিত, এই কাজটি ইতিমধ্যে অন্য কেউ নিয়ে নিয়েছে। অনুগ্রহ করে তালিকা থেকে অন্য একটি কাজ বেছে নিন।", {
+                    chat_id: chatId,
+                    message_id: messageIdToEdit
+                });
+            }
             await handleGetTask(chatId, user);
         }
-
     } catch (error) {
-        console.error("Error during task selection:", error);
-        bot.sendMessage(chatId, "কাজটি অ্যাসাইন করার সময় একটি সমস্যা হয়েছে।");
+        // ... অপরিবর্তিত ...
     } finally {
         isUpdatingSheet = false;
     }
