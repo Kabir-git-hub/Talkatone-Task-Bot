@@ -311,76 +311,29 @@ async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
 
 
 
-async function handleGetTask(chatId, user) {
-    // লক চেক করা (আগের মতোই)
-    if (isUpdatingSheet) {
-        bot.sendMessage(chatId, "অন্য ব্যবহারকারী কাজ নিচ্ছেন। অনুগ্রহ করে কয়েক সেকেন্ড পর আবার চেষ্টা করুন।");
-        return;
-    }
-    
-    // ক্যাশ থেকে সব কাজ নেওয়া
-    const rows = await getWorkSheetRows();
-    const existingTask = rows.find(row => row.get('AssignedTo') === user.name && row.get('Status') === 'Assigned');
-    if (existingTask) {
-        bot.sendMessage(chatId, "আপনার কাছে ইতিমধ্যে একটি কাজ অসমাপ্ত রয়েছে।");
-        return;
-    }
-
-    // --- মূল পরিবর্তন: সবগুলো "Available" কাজ খুঁজে বের করা ---
-    const availableTasks = rows.filter(row => row.get('Status') === 'Available');
-
-
-    if (availableTasks.length === 0) {
-        bot.sendMessage(chatId, "দুঃখিত, এই মুহূর্তে কোনো নতুন কাজ নেই।");
-        return;
-    }
-
-    // প্রতিটি কাজের জন্য একটি করে বাটন তৈরি করা
-    const keyboard = availableTasks.map(task => {
-        // ইমেইলের @-এর আগের অংশটুকু বাটনে দেখানো হবে
-        const emailPrefix = task.get('Email').split('@')[0];
-        return [{ text: `📧 ${emailPrefix}`, callback_data: `/select_task_${task.rowNumber}` }];
-    });
-
-    // (ঐচ্ছিক) যদি ২০টির বেশি কাজ থাকে, তাহলে পৃষ্ঠা আকারে দেখানো যেতে পারে
-    // আপাতত আমরা প্রথম ২০টি কাজ দেখাবো
-    const tasksToShow = keyboard.slice(0, 20);
-
-    const message = `✅ মোট ${availableTasks.length}টি কাজ রয়েছে। অনুগ্রহ করে আপনার পছন্দের কাজটি বেছে নিন:`;
-    const sentMessage = await bot.sendMessage(chatId, message, {
-        reply_markup: { inline_keyboard: tasksToShow }
-    });
-    if (!userStates[user.id]) userStates[user.id] = {};
-    userStates[user.id].taskListMessageId = sentMessage.message_id;
-}
-
-// ------ নতুন: ব্যবহারকারীর বেছে নেওয়া কাজ অ্যাসাইন করার ফাংশন (সংশোধিত) ------
+// ------ নতুন: ব্যবহারকারীর বেছে নেওয়া কাজ অ্যাসাইন করার চূড়ান্ত ফাংশন ------
 async function handleSelectTask(chatId, user, taskRow) {
     if (isUpdatingSheet) {
         bot.sendMessage(chatId, "সিস্টেমটি এই মুহূর্তে ব্যস্ত আছে। অনুগ্রহ করে কয়েক সেকেন্ড পর আবার চেষ্টা করুন।");
         return;
     }
-
     isUpdatingSheet = true;
+
+    // এডিট করার জন্য মেসেজ আইডিটি পড়া
     const messageIdToEdit = userStates[user.id]?.taskListMessageId;
+
     try {
         const rows = await getWorkSheetRows(true);
         const task = rows.find(r => r.rowNumber == taskRow);
 
         if (task && task.get('Status') === 'Available') {
-            const stats = statsCache;
-            const title = `আপনার নতুন কাজ (${stats.x}/${stats.y})`;
-
-            task.set('Status', 'Assigned');
-            task.set('AssignedTo', user.name);
+            await task.set('Status', 'Assigned');
+            await task.set('AssignedTo', user.name);
             await task.save();
             await getWorkSheetRows(true);
-            if (messageIdToEdit) {
-                bot.editMessageText("✅ আপনাকে কাজটি সফলভাবে অ্যাসাইন করা হয়েছে।", {
-                    chat_id: chatId,
-                    message_id: messageIdToEdit
-                });
-            }
+
+            const stats = statsCache;
+            const title = `আপনার নতুন কাজ (${stats.x}/${stats.y})`;
             const message = `<b>${title}</b>\n\n` +
                             `<b>Email: </b> <code>${task.get('Email')}</code>\n` +
                             `<b>Password: </b> <code>${task.get('Password')}</code>\n` +
@@ -388,25 +341,39 @@ async function handleSelectTask(chatId, user, taskRow) {
                             `কাজটি শেষ হলে ফোন নম্বরটি এখানে পাঠান।`;
             
             const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
-            
-            bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
+
+            // --- মূল পরিবর্তন: পুরনো মেসেজটিকেই নতুন কাজের বিবরণ দিয়ে এডিট করা ---
+            if (messageIdToEdit) {
+                bot.editMessageText(message, {
+                    chat_id: chatId,
+                    message_id: messageIdToEdit,
+                    parse_mode: 'HTML',
+                    reply_markup: keyboard
+                });
+            } else {
+                // যদি কোনো কারণে মেসেজ আইডি না পাওয়া যায়, তাহলে নতুন মেসেজ পাঠানো
+                bot.sendMessage(chatId, message, { parse_mode: 'HTML', reply_markup: keyboard });
+            }
+            // -------------------------------------------------------------------------
 
         } else {
-           if (messageIdToEdit) {
+            if (messageIdToEdit) {
                 bot.editMessageText("দুঃখিত, এই কাজটি ইতিমধ্যে অন্য কেউ নিয়ে নিয়েছে। অনুগ্রহ করে তালিকা থেকে অন্য একটি কাজ বেছে নিন।", {
                     chat_id: chatId,
-                    message_id: messageIdToEdit
+                    message_id: messageIdToEdit,
+                    reply_markup: { inline_keyboard: [] } // বাটনগুলো মুছে ফেলা
                 });
             }
-            await handleGetTask(chatId, user);
+            await handleGetTask(chatId, user); // ব্যবহারকারীকে আবার কাজের তালিকা দেখানো
         }
+
     } catch (error) {
-        // ... অপরিবর্তিত ...
+        console.error("Error during task selection:", error);
+        bot.sendMessage(chatId, "কাজটি অ্যাসাইন করার সময় একটি সমস্যা হয়েছে।");
     } finally {
         isUpdatingSheet = false;
     }
 }
-
 
 
 
