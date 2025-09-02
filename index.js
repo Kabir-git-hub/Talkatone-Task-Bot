@@ -309,11 +309,7 @@ async function manageUserAccess(adminChatId, targetUserId, accessStatus) {
     }
 }
 
-<<<<<<< HEAD
-// ------ ৬. বটের মূল ফাংশনগুলো (কাজ বেছে নেওয়ার ফিচার সহ) ------
-=======
 
->>>>>>> 0b9234f67f4e205bebace6839ad97db19a6c0eab
 
 async function handleGetTask(chatId, user) {
     // লক চেক করা (আগের মতোই)
@@ -333,7 +329,7 @@ async function handleGetTask(chatId, user) {
     // --- মূল পরিবর্তন: সবগুলো "Available" কাজ খুঁজে বের করা ---
     const availableTasks = rows.filter(row => row.get('Status') === 'Available');
 
-<<<<<<< HEAD
+
     if (availableTasks.length === 0) {
         bot.sendMessage(chatId, "দুঃখিত, এই মুহূর্তে কোনো নতুন কাজ নেই।");
         return;
@@ -379,11 +375,10 @@ async function handleSelectTask(chatId, user, taskRow) {
             task.set('AssignedTo', user.name);
             await task.save();
             await getWorkSheetRows(true); // ক্যাশ রিফ্রেশ করা
-=======
+
         try {
            
             const title = `আপনার নতুন কাজ (${statsCache.x}/${statsCache.y})`;
->>>>>>> 0b9234f67f4e205bebace6839ad97db19a6c0eab
 
             const message = `<b>${title}</b>\n\n` +
                             `<b>Email: </b> <code>${task.get('Email')}</code>\n` +
