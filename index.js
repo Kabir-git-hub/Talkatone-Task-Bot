@@ -560,26 +560,31 @@ function getMainMenuKeyboard(userId) {
 
     return { inline_keyboard: defaultKeyboard };
 }
-// ------ নতুন: ব্যবহারকারীকে নির্দিষ্ট কাজ অ্যাসাইন করার ফাংশন ------
+
+
+ // ------ নতুন: ব্যবহারকারীকে নির্দিষ্ট কাজ অ্যাসাইন করার চূড়ান্ত ফাংশন (তাৎক্ষণিক উত্তর সহ) ------
 async function handleAssignTask(chatId, user, taskRow, messageId) {
     if (isUpdatingSheet) {
-        bot.sendMessage(chatId, "সিস্টেমটি ব্যস্ত, অনুগ্রহ করে পরে চেষ্টা করুন।");
+        bot.answerCallbackQuery(messageId, { text: "সিস্টেম ব্যস্ত, অনুগ্রহ করে পরে চেষ্টা করুন।" });
         return;
     }
     
     isUpdatingSheet = true;
 
     try {
-        const rows = await getWorkSheetRows(true); // সর্বশেষ ডেটা আনার জন্য ক্যাশ রিফ্রেশ
+        const rows = await getWorkSheetRows(); // ক্যাশ থেকে ডেটা নেওয়া
         const taskToAssign = rows.find(r => r.rowNumber == taskRow);
 
-        // কাজটি এখনো অ্যাভেইলেবল আছে কিনা তা আবার চেক করা
         if (taskToAssign && taskToAssign.get('Status') === 'Available') {
+            
+            // --- মূল পরিবর্তন: প্রথমে ক্যাশ আপডেট এবং তাৎক্ষণিক উত্তর ---
+
+            // ১. তাৎক্ষণিকভাবে ক্যাশ আপডেট করা
             taskToAssign.set('Status', 'Assigned');
             taskToAssign.set('AssignedTo', user.name);
-            await taskToAssign.save();
-            await getWorkSheetRows(true); // সফলভাবে অ্যাসাইন করার পর আবার ক্যাশ রিফ্রেশ
+            console.log(`Task (Row ${taskRow}) assigned to ${user.name} in cache.`);
 
+            // ২. ব্যবহারকারীকে সাথে সাথে উত্তর পাঠিয়ে দেওয়া
             const title = `আপনার নতুন কাজ (${statsCache.x}/${statsCache.y})`;
             const message = `<b>${title}</b>\n\n` +
                             `<b>Email: </b> <code>${taskToAssign.get('Email')}</code>\n` +
@@ -589,13 +594,19 @@ async function handleAssignTask(chatId, user, taskRow, messageId) {
             
             const keyboard = { inline_keyboard: [[{ text: "✅ ফোন নম্বর জমা দিন", callback_data: `submit_phone_${taskRow}` }], [{ text: "❌ বাতিল করুন (Reject)", callback_data: `reject_${taskRow}` }]] };
 
-            // পুরনো "কাজের তালিকা" মেসেজটিকে এডিট করে নতুন কাজের বিবরণ দেখানো
             bot.editMessageText(message, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'HTML',
                 reply_markup: keyboard
             });
+            // -----------------------------------------------------------
+
+            // ৩. ব্যাকগ্রাউন্ডে গুগল শীটে লেখা এবং ক্যাশ রিফ্রেশ করা
+            console.log("Saving task assignment to Google Sheets in the background...");
+            await taskToAssign.save();
+            await getWorkSheetRows(true); // শীট থেকে নতুন করে সম্পূর্ণ ক্যাশ রিফ্রেশ
+            console.log("Background save and refresh successful.");
 
         } else {
             // যদি অন্য কেউ কাজটি নিয়ে নেয়
