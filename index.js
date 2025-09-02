@@ -239,11 +239,7 @@ async function handleCommand(msg, command, fromId, messageId) {
 }
 
 
-<<<<<<< HEAD
 
-// ------ নতুন: অ্যাডমিন প্যানেলের জন্য ফাংশন (সংশোধিত) ------
-=======
->>>>>>> 0b9234f67f4e205bebace6839ad97db19a6c0eab
 async function showAdminPanel(chatId) {
     
     const rows = await getUserStatsRows();
